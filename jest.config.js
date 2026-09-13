@@ -1,0 +1,1 @@
+const nextJest=require('next/jest')({dir:'./'});module.exports=nextJest({setupFilesAfterEnv:['<rootDir>/jest.setup.js'],testEnvironment:'jest-environment-jsdom'});

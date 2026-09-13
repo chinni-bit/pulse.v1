@@ -1,0 +1,2 @@
+import Head from "next/head";
+export default function Home() { return <><Head><title>Nestora Pulse v1</title></Head><main className="flex items-center justify-center min-h-screen"><h1 className="text-4xl font-bold">Nestora Pulse v1</h1></main></>;  }
