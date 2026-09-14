@@ -2,30 +2,31 @@
 
 import Head from 'next/head';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
 import { useAuthStore } from '@/store/authStore';
 
 export default function Login() {
-  const router = useRouter();
   const { login, isLoading, error, user } = useAuthStore();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [localError, setLocalError] = useState('');
 
-  // Redirect once login (here or elsewhere) has set a user. This is the
-  // *only* place that navigates to /dashboard on success - handleSubmit
-  // used to also call router.push('/dashboard') itself right after
-  // login() resolved, racing this effect's own push to the same route.
-  // Confirmed via logging: the effect's push usually won the race and
-  // handleSubmit's push resolved to `false` (Next's "cancelled/no-op"
-  // signal) a few ms later - harmless when it landed that way, but a
-  // real race with no guarantee it always would.
+  // Redirect once login has set a user. Deliberately a hard navigation
+  // (window.location), not router.push(). Removing the earlier duplicate
+  // router.push() call (handleSubmit used to push here too, racing this
+  // effect) did not fix the actual symptom: sign-in would reliably
+  // succeed (a valid session always landed in localStorage) but the
+  // client-side transition to /dashboard would intermittently never
+  // happen - no error, no console output, just silently stuck on
+  // /login - with no reproducible pattern tying it to a specific
+  // render/effect timing. Given login->dashboard only needs to happen
+  // once per session, trading the SPA transition for a full page load
+  // here removes any dependency on Next's client router state entirely.
   useEffect(() => {
     if (user) {
-      router.push('/dashboard');
+      window.location.href = '/dashboard';
     }
-  }, [user, router]);
+  }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
