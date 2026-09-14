@@ -23,13 +23,13 @@ interface SyncStatus {
 
 export default function Dashboard() {
   const router = useRouter();
-  const { user, logout } = useAuthStore();
+  const { user, tenantId, logout } = useAuthStore();
   const [stats, setStats] = useState<InventoryStats | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !tenantId) return;
 
     const fetchDashboardData = async () => {
       try {
@@ -39,19 +39,19 @@ export default function Dashboard() {
         const { data: products } = await supabase
           .from('products')
           .select('id')
-          .eq('tenant_id', user.id);
+          .eq('tenant_id', tenantId);
 
         const { data: batches } = await supabase
           .from('inventory_batches')
-          .select('quantity_on_hand')
-          .eq('tenant_id', user.id);
+          .select('quantity_available')
+          .eq('tenant_id', tenantId);
 
         const { data: warehouses } = await supabase
           .from('warehouses')
           .select('id')
-          .eq('tenant_id', user.id);
+          .eq('tenant_id', tenantId);
 
-        const totalUnits = batches?.reduce((sum, b) => sum + (b.quantity_on_hand || 0), 0) || 0;
+        const totalUnits = batches?.reduce((sum, b) => sum + (b.quantity_available || 0), 0) || 0;
 
         setStats({
           totalSKUs: products?.length || 0,
@@ -63,14 +63,14 @@ export default function Dashboard() {
         // Fetch sync logs for status
         const { data: syncLogs } = await supabase
           .from('sync_logs')
-          .select('channel_id, status, completed_at')
-          .eq('tenant_id', user.id)
+          .select('channel, status, completed_at')
+          .eq('tenant_id', tenantId)
           .order('started_at', { ascending: false })
           .limit(3);
 
         const channels = ['Amazon', 'Walmart', 'Wayfair'];
         const statuses: SyncStatus[] = channels.map((channel) => {
-          const lastLog = syncLogs?.find((log) => log.channel_id?.includes(channel));
+          const lastLog = syncLogs?.find((log) => log.channel?.includes(channel));
           return {
             channel,
             lastSync: lastLog?.completed_at ? new Date(lastLog.completed_at).toLocaleString() : 'Never',
@@ -88,7 +88,7 @@ export default function Dashboard() {
     };
 
     fetchDashboardData();
-  }, [user]);
+  }, [user, tenantId]);
 
   const handleLogout = async () => {
     try {
