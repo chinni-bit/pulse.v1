@@ -132,6 +132,9 @@ export default function Dashboard() {
               <Link href="/admin/users" className="text-blue-600 hover:underline font-medium">
                 Users
               </Link>
+              <Link href="/channels" className="text-blue-600 hover:underline font-medium">
+                Channels
+              </Link>
               <span className="text-slate-600">{user?.email}</span>
               <button
                 onClick={handleLogout}
