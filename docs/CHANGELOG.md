@@ -161,3 +161,25 @@ without first checking whether it reproduces outside of automated testing.
   Google Drive "Nestora Pulse Backups" folder feeding it were found during
   cleanup and are **unrelated real business data** (626 SKUs, ~11k
   inventory rows) — confirmed out of scope, left untouched.
+- **MS 365/Teams integration and a real admin panel UI are deliberately
+  deferred to a future, not-yet-scoped phase** (owner's call, 2026-09-14).
+  Priority is core business logic (inventory + channel sync), kept simple.
+
+## Phase 2 kickoff (2026-09-14)
+
+- **Added `src/pages/products.tsx`** — first Inventory CRUD page: list, add,
+  edit, and soft-delete products, filtered by `tenant_id`. Delete sets the
+  existing `products.deleted_at` column rather than removing the row.
+  Verified end-to-end against the live dev database (list showed all 15
+  seeded products; added a test row, edited it, deleted it, confirmed it
+  disappeared from the list without touching the real rows).
+- **`dashboard.tsx`'s SKU count now also excludes soft-deleted products**
+  (`.is('deleted_at', null)`) — a gap this page's soft-delete pattern
+  exposed; without it the dashboard stat would over-count.
+- Real Supabase schema for `products` (`sku`, `title`, `description`,
+  `brand_name`, `cost`, `msrp`, `customer_exclusivity`, `status`,
+  `deleted_at`) confirmed directly against the live `pulse-v1` project via
+  the Supabase MCP tool — the previously-committed
+  `supabase/migrations/001_initial_schema.sql` in the planning folder does
+  not match it (different table/column names, RLS-on-by-default) and has
+  been moved to `obsolete docs/`.
