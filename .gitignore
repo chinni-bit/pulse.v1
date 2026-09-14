@@ -6,6 +6,7 @@ node_modules/
 dist/
 build/
 .vercel/
+*.tsbuildinfo
 
 # Secrets / credentials references (never commit real keys/secrets)
 CREDENTIALS.md
