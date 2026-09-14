@@ -106,3 +106,31 @@ export async function getWalmartOrders(limit = 100): Promise<WalmartOrder[]> {
   const json = await res.json();
   return (json.list?.elements?.order || []) as WalmartOrder[];
 }
+
+/**
+ * Pushes an absolute on-hand quantity for one SKU to Walmart (REST,
+ * PUT v3/inventory - each call replaces that SKU's quantity, it's not a
+ * delta). Server-side only. No extra account config needed beyond the
+ * Client ID/Secret already required for auth - verified live.
+ */
+export async function pushWalmartInventory(sku: string, quantity: number): Promise<void> {
+  const accessToken = await getWalmartAccessToken();
+
+  const res = await fetch(`${API_BASE_URL}/v3/inventory?sku=${encodeURIComponent(sku)}`, {
+    method: 'PUT',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'WM_SVC.NAME': 'Walmart Marketplace',
+      'WM_QOS.CORRELATION_ID': `pulse-inv-${Date.now()}`,
+      'WM_SEC.ACCESS_TOKEN': accessToken,
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ sku, quantity: { unit: 'EACH', amount: quantity } }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Walmart inventory push failed for ${sku} (${res.status}): ${body.slice(0, 500)}`);
+  }
+}

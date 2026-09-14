@@ -36,6 +36,11 @@ const SYNCABLE: Record<string, string> = {
   WALMART: '/api/channels/sync-walmart-orders',
 };
 
+const PUSHABLE: Record<string, string> = {
+  WAYFAIR: '/api/channels/push-wayfair-inventory',
+  WALMART: '/api/channels/push-walmart-inventory',
+};
+
 export default function Channels() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
@@ -47,6 +52,8 @@ export default function Channels() {
   const [testResult, setTestResult] = useState<Record<string, string>>({});
   const [syncing, setSyncing] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<Record<string, string>>({});
+  const [pushing, setPushing] = useState<string | null>(null);
+  const [pushResult, setPushResult] = useState<Record<string, string>>({});
 
   const fetchData = async () => {
     setLoading(true);
@@ -144,6 +151,39 @@ export default function Channels() {
     fetchData();
   };
 
+  const pushInventory = async (channelName: string) => {
+    const endpoint = PUSHABLE[channelName];
+    if (!endpoint) return;
+
+    setPushing(channelName);
+    setPushResult((prev) => ({ ...prev, [channelName]: '' }));
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      setPushResult((prev) => ({ ...prev, [channelName]: 'Session expired - log in again' }));
+      setPushing(null);
+      return;
+    }
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    const result = await res.json();
+
+    setPushResult((prev) => ({
+      ...prev,
+      [channelName]: res.ok
+        ? `${result.mappingCount} product(s) mapped to this channel, ${result.itemCount} pushed, ${result.errorCount} error(s)`
+        : `Failed: ${result.error}`,
+    }));
+    setPushing(null);
+    fetchData();
+  };
+
   return (
     <ProtectedRoute>
       <Head>
@@ -173,11 +213,13 @@ export default function Channels() {
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-            Wayfair and Walmart can both pull orders into Orders below (sandbox data). A fully
-            cancelled order is marked Cancelled and excluded from its own total; line items only
-            link to a local product when the SKU matches exactly - sandbox test SKUs mostly
-            won&apos;t match real products yet, and that&apos;s expected, not a bug. Inventory
-            push isn&apos;t built yet.
+            Wayfair and Walmart can both pull orders and push inventory. A fully cancelled order
+            is marked Cancelled and excluded from its own total; order line items only link to a
+            local product when the SKU matches exactly - sandbox test SKUs mostly won&apos;t match
+            real products yet, expected, not a bug. Inventory push needs a product mapped to a
+            channel SKU first (<code>product_mappings</code> table - no UI to manage these yet, so
+            it correctly pushes 0 items until at least one exists). Wayfair inventory push also
+            needs <code>WAYFAIR_SUPPLIER_ID</code> configured - without it every item is rejected.
           </div>
 
           {loading ? (
@@ -221,6 +263,15 @@ export default function Channels() {
                             {syncing === channel.channel_name ? 'Pulling...' : 'Pull Orders'}
                           </button>
                         )}
+                        {PUSHABLE[channel.channel_name] && (
+                          <button
+                            onClick={() => pushInventory(channel.channel_name)}
+                            disabled={pushing === channel.channel_name}
+                            className="px-3 py-1.5 bg-amber-700 text-white text-sm font-medium rounded-lg hover:bg-amber-800 disabled:bg-slate-400"
+                          >
+                            {pushing === channel.channel_name ? 'Pushing...' : 'Push Inventory'}
+                          </button>
+                        )}
                       </div>
                       {testResult[channel.channel_name] && (
                         <p
@@ -242,6 +293,17 @@ export default function Channels() {
                           }`}
                         >
                           {syncResult[channel.channel_name]}
+                        </p>
+                      )}
+                      {pushResult[channel.channel_name] && (
+                        <p
+                          className={`text-sm mt-2 ${
+                            pushResult[channel.channel_name].startsWith('Failed')
+                              ? 'text-red-700'
+                              : 'text-green-700'
+                          }`}
+                        >
+                          {pushResult[channel.channel_name]}
                         </p>
                       )}
                     </>

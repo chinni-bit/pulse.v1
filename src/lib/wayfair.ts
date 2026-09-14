@@ -120,3 +120,88 @@ export async function getDropshipPurchaseOrders(
 
   return (json.data?.getDropshipPurchaseOrders || []) as WayfairPurchaseOrder[];
 }
+
+export interface WayfairInventoryItem {
+  supplierPartNumber: string;
+  quantityOnHand: number;
+}
+
+export interface WayfairInventoryItemError {
+  key: string;
+  message: string;
+}
+
+export interface WayfairInventoryResult {
+  id: string;
+  status: string;
+  itemCount: number;
+  errorCount: number;
+  errors: WayfairInventoryItemError[];
+}
+
+const SAVE_INVENTORY_MUTATION = `
+  mutation SaveInventory($inventory: [inventoryInput!]!, $feedKind: inventoryFeedKind, $dryRun: Boolean) {
+    inventory {
+      save(inventory: $inventory, feedKind: $feedKind, dryRun: $dryRun) {
+        id
+        status
+        itemCount
+        errorCount
+        errors { key message }
+      }
+    }
+  }
+`;
+
+/**
+ * Pushes absolute on-hand quantities to Wayfair (GraphQL, TRUE_UP feed -
+ * each item's quantityOnHand replaces what Wayfair has, it's not a delta).
+ * Server-side only.
+ *
+ * Requires WAYFAIR_SUPPLIER_ID - Wayfair's inventory mutation rejects
+ * every item with "Invalid supplier id" without it (confirmed live via
+ * dryRun), and it's account-specific data only found on Wayfair's own
+ * Partner Home / supplier profile page, not derivable from the API or
+ * the Client ID/Secret.
+ */
+export async function pushWayfairInventory(
+  items: WayfairInventoryItem[],
+  dryRun = false
+): Promise<WayfairInventoryResult> {
+  const supplierId = process.env.WAYFAIR_SUPPLIER_ID;
+  if (!supplierId) {
+    throw new Error(
+      'WAYFAIR_SUPPLIER_ID is not configured on the server. Find it on Wayfair\'s Partner Home ' +
+        '(supplier profile / account settings) and add it to .env.local and Vercel - server-side, ' +
+        'a plain number is fine to expose since it is not a credential, but keep it out of NEXT_PUBLIC_* ' +
+        'anyway for consistency with the other channel config.'
+    );
+  }
+
+  const accessToken = await getWayfairAccessToken();
+
+  const res = await fetch(`${API_BASE_URL}/v1/graphql`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({
+      query: SAVE_INVENTORY_MUTATION,
+      variables: {
+        inventory: items.map((item) => ({ ...item, supplierId: Number(supplierId) })),
+        feedKind: 'TRUE_UP',
+        dryRun,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Wayfair inventory push failed (${res.status}): ${body.slice(0, 500)}`);
+  }
+
+  const json = await res.json();
+  if (json.errors?.length) {
+    throw new Error(`Wayfair GraphQL error: ${json.errors.map((e: { message: string }) => e.message).join('; ')}`);
+  }
+
+  return json.data.inventory.save as WayfairInventoryResult;
+}
