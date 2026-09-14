@@ -116,16 +116,26 @@ without first checking whether it reproduces outside of automated testing.
 
 ## Known issues carried forward (not yet fixed)
 
-- **`dashboard.tsx`'s stat queries filter by `user.id`** (the auth user's
-  UUID) where they should filter by the store's `tenantId`. Currently
-  returns 0/empty for every real tenant. Not touched this session — scoped
-  as Phase 2 work, see below.
-- **No session persistence across a hard page reload** — documented as a
-  known Day-1 limitation in the original completion summary; still true.
 - **No password reset flow** — `resetPassword()`/`updatePassword()` exist as
   unused exports in `lib/supabase.ts`; nothing calls them.
 - **No admin UI for user management** — accounts are created via direct SQL.
   Fine for a handful of internal users, not sustainable past that.
+
+## Fixed after this changelog was first written (2026-09-14)
+
+- **`dashboard.tsx`'s stat queries were filtering by `user.id`** (the auth
+  user's UUID) where they should have used the store's `tenantId` — every
+  stat silently showed 0/empty for any real tenant. Also fixed two queries
+  referencing database columns that don't exist (`quantity_on_hand` →
+  `quantity_available`, `channel_id` → `channel`). Verified against real
+  data post-fix: Total SKUs 15, Total Units 460, Warehouses 3.
+- **No session persistence across a hard page reload** — documented as a
+  known Day-1 limitation in the original completion summary. Verified
+  resolved: 4/4 consecutive hard reloads on `/dashboard` after login stayed
+  logged in with correct data, no bounce to `/login`. Same root cause as
+  the login-bounce-back bug above (item 6) — the `checked`-flag fix made
+  there fixed this too, as an unintended side effect. No new code was
+  needed, just verification.
 
 ## Architecture decisions reaffirmed or made this session
 
