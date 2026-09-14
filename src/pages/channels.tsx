@@ -136,7 +136,7 @@ export default function Channels() {
     setSyncResult((prev) => ({
       ...prev,
       [channelName]: res.ok
-        ? `${result.ordersCreated} new order(s) pulled, ${result.ordersSkippedExisting} already existed, ${result.lineItemsMatched} line item(s) matched to products, ${result.lineItemsUnmatched} unmatched`
+        ? `${result.ordersCreated} new order(s), ${result.ordersUnchanged} unchanged, ${result.ordersUpdatedOnResync} updated (e.g. cancelled) - ${result.lineItemsMatched} line item(s) matched (${result.lineItemsCancelled} cancelled), ${result.lineItemsUnmatched} unmatched`
         : `Failed: ${result.error}`,
     }));
     setSyncing(null);

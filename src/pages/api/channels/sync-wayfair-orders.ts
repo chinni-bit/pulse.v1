@@ -42,8 +42,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const startedAt = new Date().toISOString();
 
   let ordersCreated = 0;
-  let ordersSkippedExisting = 0;
+  let ordersUpdatedOnResync = 0;
+  let ordersUnchanged = 0;
   let lineItemsMatched = 0;
+  let lineItemsCancelled = 0;
   let lineItemsUnmatched = 0;
   let status: 'success' | 'failed' = 'success';
   let errorMessage: string | null = null;
@@ -62,20 +64,47 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const productBySku = new Map((products || []).map((p) => [p.sku.toUpperCase(), p.id]));
 
     for (const po of purchaseOrders) {
+      // A PO where every line item is cancelled is a cancelled order.
+      // Wayfair doesn't send a separate "order cancelled" flag - this is
+      // inferred, same as Wayfair's own dashboards do it.
+      const allCancelled = po.products.length > 0 && po.products.every((p) => p.isCancelled);
+      const computedStatus = allCancelled ? 'CANCELLED' : 'PENDING';
+      // Cancelled line items didn't ship and shouldn't count toward the
+      // order's value.
+      const totalAmount = po.products
+        .filter((p) => !p.isCancelled)
+        .reduce((sum, p) => sum + (p.totalCost || 0), 0);
+
       const { data: existing } = await callerClient
         .from('orders')
-        .select('id')
+        .select('id, status, total_amount')
         .eq('tenant_id', tenantId)
         .eq('channel', 'WAYFAIR')
         .eq('channel_order_id', po.poNumber)
         .maybeSingle();
 
       if (existing) {
-        ordersSkippedExisting++;
+        // Already pulled before - reconcile status + total only (e.g.
+        // Wayfair cancelled it after the initial pull). Line items for
+        // existing orders aren't touched here; a full line-item diff on
+        // every resync isn't worth the complexity for what this feature
+        // needs.
+        if (existing.status !== computedStatus || Number(existing.total_amount) !== totalAmount) {
+          const { error: updateError } = await callerClient
+            .from('orders')
+            .update({ status: computedStatus, total_amount: totalAmount })
+            .eq('id', existing.id);
+
+          if (updateError) {
+            throw new Error(`Failed to update order ${po.poNumber} status: ${updateError.message}`);
+          }
+          ordersUpdatedOnResync++;
+        } else {
+          ordersUnchanged++;
+        }
         continue;
       }
 
-      const totalAmount = po.products.reduce((sum, p) => sum + (p.totalCost || 0), 0);
       const shippingAddress = po.shipTo
         ? [po.shipTo.name, po.shipTo.address1, po.shipTo.city, po.shipTo.state, po.shipTo.postalCode, po.shipTo.country]
             .filter(Boolean)
@@ -91,7 +120,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           channel_order_id: po.poNumber,
           customer_name: po.customerName,
           customer_email: po.customerEmail,
-          status: 'PENDING',
+          status: computedStatus,
           total_amount: totalAmount,
           shipping_address: shippingAddress,
         })
@@ -118,12 +147,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           product_id: productId,
           quantity_ordered: item.quantity ? parseInt(item.quantity, 10) : 1,
           unit_price: item.price,
+          is_cancelled: item.isCancelled,
         });
 
         if (itemError) {
           lineItemsUnmatched++;
         } else {
           lineItemsMatched++;
+          if (item.isCancelled) lineItemsCancelled++;
         }
       }
     }
@@ -132,7 +163,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     errorMessage = err instanceof Error ? err.message : 'Unknown error';
   }
 
-  const summary = `orders created: ${ordersCreated}, already existed: ${ordersSkippedExisting}, line items matched: ${lineItemsMatched}, unmatched (no local product with that SKU): ${lineItemsUnmatched}`;
+  const summary =
+    `orders created: ${ordersCreated}, unchanged: ${ordersUnchanged}, ` +
+    `updated on resync (status/total changed, e.g. cancelled): ${ordersUpdatedOnResync}, ` +
+    `line items matched: ${lineItemsMatched} (${lineItemsCancelled} cancelled), ` +
+    `unmatched (no local product with that SKU): ${lineItemsUnmatched}`;
 
   await callerClient.from('sync_logs').insert({
     tenant_id: tenantId,
@@ -152,8 +187,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   return res.status(200).json({
     ordersCreated,
-    ordersSkippedExisting,
+    ordersUnchanged,
+    ordersUpdatedOnResync,
     lineItemsMatched,
+    lineItemsCancelled,
     lineItemsUnmatched,
   });
 }
