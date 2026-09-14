@@ -20,13 +20,22 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   // and bounced others with no code change.
   const [checked, setChecked] = useState(false);
 
+  // TEMP DIAGNOSTIC - remove once login bounce-back is confirmed fixed
+  console.log('[ProtectedRoute] render', { checked, isLoading, hasUser: !!user });
+
   useEffect(() => {
-    checkAuth().finally(() => setChecked(true));
+    console.log('[ProtectedRoute] mount effect: calling checkAuth()');
+    checkAuth().finally(() => {
+      console.log('[ProtectedRoute] checkAuth().finally -> setChecked(true)');
+      setChecked(true);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkAuth]);
 
   useEffect(() => {
+    console.log('[ProtectedRoute] redirect-effect eval', { checked, isLoading, hasUser: !!user });
     if (checked && !isLoading && !user) {
+      console.log('[ProtectedRoute] REDIRECTING to /login');
       router.push('/login');
     }
   }, [checked, isLoading, user, router]);
