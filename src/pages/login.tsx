@@ -15,7 +15,9 @@ export default function Login() {
 
   // Redirect if already logged in
   useEffect(() => {
+    console.log('[login effect] user changed', { hasUser: !!user });
     if (user) {
+      console.log('[login effect] pushing /dashboard');
       router.push('/dashboard');
     }
   }, [user, router]);
@@ -30,9 +32,17 @@ export default function Login() {
     }
 
     try {
+      console.log('[login handleSubmit] calling login()');
       await login(email, password);
-      router.push('/dashboard');
+      console.log('[login handleSubmit] login() resolved, calling router.push(/dashboard)');
+      const result = router.push('/dashboard');
+      console.log('[login handleSubmit] router.push returned', typeof result, result);
+      result?.then?.(
+        (v) => console.log('[login handleSubmit] router.push RESOLVED', v),
+        (e) => console.log('[login handleSubmit] router.push REJECTED', String(e))
+      );
     } catch (err) {
+      console.log('[login handleSubmit] CAUGHT', err instanceof Error ? err.message : String(err));
       const message = err instanceof Error ? err.message : 'Login failed';
       setLocalError(message);
     }
