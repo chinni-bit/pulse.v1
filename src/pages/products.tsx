@@ -17,6 +17,7 @@ interface Product {
   cost: number | null;
   msrp: number | null;
   status: string;
+  reorder_threshold: number;
 }
 
 interface ProductFormData {
@@ -27,6 +28,7 @@ interface ProductFormData {
   cost: string;
   msrp: string;
   status: string;
+  reorder_threshold: string;
 }
 
 const EMPTY_FORM: ProductFormData = {
@@ -37,6 +39,7 @@ const EMPTY_FORM: ProductFormData = {
   cost: '',
   msrp: '',
   status: 'ACTIVE',
+  reorder_threshold: '10',
 };
 
 interface Variant {
@@ -88,7 +91,7 @@ export default function Products() {
 
     const { data, error } = await supabase
       .from('products')
-      .select('id, sku, title, description, brand_name, cost, msrp, status')
+      .select('id, sku, title, description, brand_name, cost, msrp, status, reorder_threshold')
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
       .order('title', { ascending: true });
@@ -132,6 +135,7 @@ export default function Products() {
       cost: product.cost != null ? String(product.cost) : '',
       msrp: product.msrp != null ? String(product.msrp) : '',
       status: product.status,
+      reorder_threshold: String(product.reorder_threshold),
     });
     setFormError('');
     setShowForm(true);
@@ -163,6 +167,7 @@ export default function Products() {
       cost: formData.cost ? Number(formData.cost) : null,
       msrp: formData.msrp ? Number(formData.msrp) : null,
       status: formData.status,
+      reorder_threshold: formData.reorder_threshold ? Number(formData.reorder_threshold) : 10,
     };
 
     const { error } = editingId
@@ -398,6 +403,19 @@ export default function Products() {
                     disabled={saving}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Reorder Threshold</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.reorder_threshold}
+                    onChange={(e) => setFormData({ ...formData, reorder_threshold: e.target.value })}
+                    disabled={saving}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Flagged as low stock below this quantity</p>
                 </div>
 
                 <div className="md:col-span-2">

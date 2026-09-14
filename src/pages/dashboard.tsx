@@ -39,13 +39,13 @@ export default function Dashboard() {
         // Fetch inventory stats
         const { data: products } = await supabase
           .from('products')
-          .select('id')
+          .select('id, reorder_threshold')
           .eq('tenant_id', tenantId)
           .is('deleted_at', null);
 
         const { data: batches } = await supabase
           .from('inventory_batches')
-          .select('quantity_available')
+          .select('product_id, quantity_available')
           .eq('tenant_id', tenantId);
 
         const { data: warehouses } = await supabase
@@ -55,11 +55,18 @@ export default function Dashboard() {
 
         const totalUnits = batches?.reduce((sum, b) => sum + (b.quantity_available || 0), 0) || 0;
 
+        const availableByProduct = new Map<string, number>();
+        batches?.forEach((b) => {
+          availableByProduct.set(b.product_id, (availableByProduct.get(b.product_id) || 0) + (b.quantity_available || 0));
+        });
+        const lowStockCount =
+          products?.filter((p) => (availableByProduct.get(p.id) || 0) < p.reorder_threshold).length || 0;
+
         setStats({
           totalSKUs: products?.length || 0,
           totalUnits,
           warehouses: warehouses?.length || 0,
-          lowStockCount: 0, // TODO: Implement low stock threshold
+          lowStockCount,
         });
 
         // Fetch sync logs for status
