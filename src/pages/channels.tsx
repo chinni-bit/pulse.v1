@@ -31,6 +31,10 @@ const TESTABLE: Record<string, string> = {
   WALMART: '/api/channels/test-walmart',
 };
 
+const SYNCABLE: Record<string, string> = {
+  WAYFAIR: '/api/channels/sync-wayfair-orders',
+};
+
 export default function Channels() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
@@ -40,6 +44,8 @@ export default function Channels() {
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, string>>({});
+  const [syncing, setSyncing] = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<Record<string, string>>({});
 
   const fetchData = async () => {
     setLoading(true);
@@ -104,6 +110,39 @@ export default function Channels() {
     fetchData();
   };
 
+  const syncOrders = async (channelName: string) => {
+    const endpoint = SYNCABLE[channelName];
+    if (!endpoint) return;
+
+    setSyncing(channelName);
+    setSyncResult((prev) => ({ ...prev, [channelName]: '' }));
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      setSyncResult((prev) => ({ ...prev, [channelName]: 'Session expired - log in again' }));
+      setSyncing(null);
+      return;
+    }
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    const result = await res.json();
+
+    setSyncResult((prev) => ({
+      ...prev,
+      [channelName]: res.ok
+        ? `${result.ordersCreated} new order(s) pulled, ${result.ordersSkippedExisting} already existed, ${result.lineItemsMatched} line item(s) matched to products, ${result.lineItemsUnmatched} unmatched`
+        : `Failed: ${result.error}`,
+    }));
+    setSyncing(null);
+    fetchData();
+  };
+
   return (
     <ProtectedRoute>
       <Head>
@@ -133,9 +172,10 @@ export default function Channels() {
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-            Product/order sync isn&apos;t built yet - this page currently only verifies that a
-            channel&apos;s API credentials work (OAuth token exchange). Full sync (pulling products,
-            pushing inventory) is the next step once a connection is confirmed working.
+            Wayfair can pull dropship purchase orders into Orders below (sandbox data).
+            Line items only link to a local product when the SKU matches exactly - sandbox test
+            SKUs mostly won&apos;t match real products yet, and that&apos;s expected, not a bug.
+            Inventory push and Walmart order sync aren&apos;t built yet.
           </div>
 
           {loading ? (
@@ -162,13 +202,24 @@ export default function Channels() {
 
                   {TESTABLE[channel.channel_name] ? (
                     <>
-                      <button
-                        onClick={() => testConnection(channel.channel_name)}
-                        disabled={testing === channel.channel_name}
-                        className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:bg-slate-400"
-                      >
-                        {testing === channel.channel_name ? 'Testing...' : 'Test Connection'}
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => testConnection(channel.channel_name)}
+                          disabled={testing === channel.channel_name}
+                          className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:bg-slate-400"
+                        >
+                          {testing === channel.channel_name ? 'Testing...' : 'Test Connection'}
+                        </button>
+                        {SYNCABLE[channel.channel_name] && (
+                          <button
+                            onClick={() => syncOrders(channel.channel_name)}
+                            disabled={syncing === channel.channel_name}
+                            className="px-3 py-1.5 bg-slate-700 text-white text-sm font-medium rounded-lg hover:bg-slate-800 disabled:bg-slate-400"
+                          >
+                            {syncing === channel.channel_name ? 'Pulling...' : 'Pull Orders'}
+                          </button>
+                        )}
+                      </div>
                       {testResult[channel.channel_name] && (
                         <p
                           className={`text-sm mt-2 ${
@@ -178,6 +229,17 @@ export default function Channels() {
                           }`}
                         >
                           {testResult[channel.channel_name]}
+                        </p>
+                      )}
+                      {syncResult[channel.channel_name] && (
+                        <p
+                          className={`text-sm mt-2 ${
+                            syncResult[channel.channel_name].startsWith('Failed')
+                              ? 'text-red-700'
+                              : 'text-green-700'
+                          }`}
+                        >
+                          {syncResult[channel.channel_name]}
                         </p>
                       )}
                     </>
