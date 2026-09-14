@@ -124,6 +124,11 @@ export async function getDropshipPurchaseOrders(
 export interface WayfairInventoryItem {
   supplierPartNumber: string;
   quantityOnHand: number;
+  // Wayfair assigns a separate supplier ID per fulfillment warehouse
+  // (they use it to compute shipping cost/sourcing), not one per
+  // account - a single push can and normally will mix items tagged with
+  // different supplierIds for the same SKU at different warehouses.
+  supplierId: number;
 }
 
 export interface WayfairInventoryItemError {
@@ -134,6 +139,12 @@ export interface WayfairInventoryItemError {
 export interface WayfairInventoryResult {
   id: string;
   status: string;
+  // itemCount/errorCount reflect Wayfair's async processing state at the
+  // instant this call returns - both are ~0 immediately after submitting
+  // regardless of outcome (confirmed live: a run that got a real
+  // "Invalid supplier id" rejection still showed errorCount: 0). Use
+  // errors.length for immediate validation failures instead - that field
+  // IS populated right away.
   itemCount: number;
   errorCount: number;
   errors: WayfairInventoryItemError[];
@@ -156,28 +167,15 @@ const SAVE_INVENTORY_MUTATION = `
 /**
  * Pushes absolute on-hand quantities to Wayfair (GraphQL, TRUE_UP feed -
  * each item's quantityOnHand replaces what Wayfair has, it's not a delta).
- * Server-side only.
- *
- * Requires WAYFAIR_SUPPLIER_ID - Wayfair's inventory mutation rejects
- * every item with "Invalid supplier id" without it (confirmed live via
- * dryRun), and it's account-specific data only found on Wayfair's own
- * Partner Home / supplier profile page, not derivable from the API or
- * the Client ID/Secret.
+ * Server-side only. Each item must carry its own supplierId (see
+ * WayfairInventoryItem) - Wayfair's inventory mutation rejects an item
+ * with "Invalid supplier id" if it's missing or wrong (confirmed live via
+ * dryRun), and there's no single account-wide default.
  */
 export async function pushWayfairInventory(
   items: WayfairInventoryItem[],
   dryRun = false
 ): Promise<WayfairInventoryResult> {
-  const supplierId = process.env.WAYFAIR_SUPPLIER_ID;
-  if (!supplierId) {
-    throw new Error(
-      'WAYFAIR_SUPPLIER_ID is not configured on the server. Find it on Wayfair\'s Partner Home ' +
-        '(supplier profile / account settings) and add it to .env.local and Vercel - server-side, ' +
-        'a plain number is fine to expose since it is not a credential, but keep it out of NEXT_PUBLIC_* ' +
-        'anyway for consistency with the other channel config.'
-    );
-  }
-
   const accessToken = await getWayfairAccessToken();
 
   const res = await fetch(`${API_BASE_URL}/v1/graphql`, {
@@ -186,7 +184,7 @@ export async function pushWayfairInventory(
     body: JSON.stringify({
       query: SAVE_INVENTORY_MUTATION,
       variables: {
-        inventory: items.map((item) => ({ ...item, supplierId: Number(supplierId) })),
+        inventory: items,
         feedKind: 'TRUE_UP',
         dryRun,
       },

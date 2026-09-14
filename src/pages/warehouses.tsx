@@ -13,15 +13,17 @@ interface Warehouse {
   code: string;
   name: string;
   location: string | null;
+  wayfair_supplier_id: number | null;
 }
 
 interface WarehouseFormData {
   code: string;
   name: string;
   location: string;
+  wayfair_supplier_id: string;
 }
 
-const EMPTY_FORM: WarehouseFormData = { code: '', name: '', location: '' };
+const EMPTY_FORM: WarehouseFormData = { code: '', name: '', location: '', wayfair_supplier_id: '' };
 
 export default function Warehouses() {
   const router = useRouter();
@@ -45,7 +47,7 @@ export default function Warehouses() {
 
     const { data, error } = await supabase
       .from('warehouses')
-      .select('id, code, name, location')
+      .select('id, code, name, location, wayfair_supplier_id')
       .eq('tenant_id', tenantId)
       .order('name', { ascending: true });
 
@@ -84,6 +86,7 @@ export default function Warehouses() {
       code: warehouse.code,
       name: warehouse.name,
       location: warehouse.location || '',
+      wayfair_supplier_id: warehouse.wayfair_supplier_id != null ? String(warehouse.wayfair_supplier_id) : '',
     });
     setFormError('');
     setShowForm(true);
@@ -111,6 +114,7 @@ export default function Warehouses() {
       code: formData.code.trim(),
       name: formData.name.trim(),
       location: formData.location.trim() || null,
+      wayfair_supplier_id: formData.wayfair_supplier_id.trim() ? Number(formData.wayfair_supplier_id) : null,
     };
 
     const { error } = editingId
@@ -243,6 +247,22 @@ export default function Warehouses() {
                   />
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Wayfair Supplier ID</label>
+                  <input
+                    type="number"
+                    value={formData.wayfair_supplier_id}
+                    onChange={(e) => setFormData({ ...formData, wayfair_supplier_id: e.target.value })}
+                    disabled={saving}
+                    placeholder="leave blank if this warehouse doesn't ship Wayfair orders"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    From Wayfair&apos;s Partner Home. Required for this warehouse&apos;s inventory to be
+                    included in Wayfair pushes.
+                  </p>
+                </div>
+
                 <div className="md:col-span-3 flex gap-3">
                   <button
                     type="submit"
@@ -279,6 +299,7 @@ export default function Warehouses() {
                     <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Code</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Name</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Location</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Wayfair Supplier ID</th>
                     <th className="px-6 py-3 text-right text-sm font-semibold text-slate-900">Actions</th>
                   </tr>
                 </thead>
@@ -288,6 +309,7 @@ export default function Warehouses() {
                       <td className="px-6 py-4 text-sm font-medium text-slate-900">{warehouse.code}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{warehouse.name}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{warehouse.location || '—'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{warehouse.wayfair_supplier_id ?? '—'}</td>
                       <td className="px-6 py-4 text-sm text-right space-x-3">
                         <button
                           onClick={() => openEditForm(warehouse)}

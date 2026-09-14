@@ -218,8 +218,10 @@ export default function Channels() {
             local product when the SKU matches exactly - sandbox test SKUs mostly won&apos;t match
             real products yet, expected, not a bug. Inventory push needs a product mapped to a
             channel SKU first (<code>product_mappings</code> table - no UI to manage these yet, so
-            it correctly pushes 0 items until at least one exists). Wayfair inventory push also
-            needs <code>WAYFAIR_SUPPLIER_ID</code> configured - without it every item is rejected.
+            it correctly pushes 0 items until at least one exists). Wayfair reports inventory
+            per warehouse (they price/source by shipping cost from each one) - set a Wayfair
+            Supplier ID on a warehouse in <Link href="/warehouses" className="underline">Warehouses</Link>{' '}
+            to include it; warehouses without one are skipped.
           </div>
 
           {loading ? (
