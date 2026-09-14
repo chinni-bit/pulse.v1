@@ -13,11 +13,16 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [localError, setLocalError] = useState('');
 
-  // Redirect if already logged in
+  // Redirect once login (here or elsewhere) has set a user. This is the
+  // *only* place that navigates to /dashboard on success - handleSubmit
+  // used to also call router.push('/dashboard') itself right after
+  // login() resolved, racing this effect's own push to the same route.
+  // Confirmed via logging: the effect's push usually won the race and
+  // handleSubmit's push resolved to `false` (Next's "cancelled/no-op"
+  // signal) a few ms later - harmless when it landed that way, but a
+  // real race with no guarantee it always would.
   useEffect(() => {
-    console.log('[login effect] user changed', { hasUser: !!user });
     if (user) {
-      console.log('[login effect] pushing /dashboard');
       router.push('/dashboard');
     }
   }, [user, router]);
@@ -32,17 +37,10 @@ export default function Login() {
     }
 
     try {
-      console.log('[login handleSubmit] calling login()');
       await login(email, password);
-      console.log('[login handleSubmit] login() resolved, calling router.push(/dashboard)');
-      const result = router.push('/dashboard');
-      console.log('[login handleSubmit] router.push returned', typeof result, result);
-      result?.then?.(
-        (v) => console.log('[login handleSubmit] router.push RESOLVED', v),
-        (e) => console.log('[login handleSubmit] router.push REJECTED', String(e))
-      );
+      // No router.push here - the effect above handles redirecting once
+      // `user` is set.
     } catch (err) {
-      console.log('[login handleSubmit] CAUGHT', err instanceof Error ? err.message : String(err));
       const message = err instanceof Error ? err.message : 'Login failed';
       setLocalError(message);
     }

@@ -116,14 +116,10 @@ export const useAuthStore = create<AuthStore>((set) => ({
   checkAuth: async () => {
     try {
       set({ isLoading: true });
-      // TEMP DIAGNOSTIC - remove once login bounce-back is confirmed fixed
-      console.log('[checkAuth] start', new Date().toISOString());
 
-      const { data: { user }, error: getUserErr } = await supabase.auth.getUser();
-      console.log('[checkAuth] getUser result', { userId: user?.id, error: getUserErr?.message });
+      const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
-        console.log('[checkAuth] no user, clearing state');
         set({ user: null, tenantId: null, isLoading: false });
         return;
       }
@@ -134,14 +130,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
         .select('tenant_id')
         .eq('id', user.id)
         .single();
-      console.log('[checkAuth] users select result', { userData, error: userError?.message, code: (userError as any)?.code });
 
       if (userError) throw userError;
 
-      console.log('[checkAuth] success, setting user + tenantId');
       set({ user, tenantId: userData.tenant_id, isLoading: false });
     } catch (err) {
-      console.log('[checkAuth] CAUGHT ERROR', err instanceof Error ? err.message : err);
       set({ user: null, tenantId: null, isLoading: false });
     }
   },
