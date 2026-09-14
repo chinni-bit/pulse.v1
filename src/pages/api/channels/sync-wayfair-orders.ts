@@ -54,7 +54,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const purchaseOrders = await getDropshipPurchaseOrders(25);
 
     // Pull the tenant's product SKUs once, so each PO's line items can be
-    // matched in memory instead of a query per line item.
+    // matched in memory instead of a query per line item. Default is the
+    // product's own SKU (Wayfair's Supplier Part Number is meant to be
+    // set to the supplier's own SKU - confirmed via Wayfair's own
+    // integration docs); an explicit product_mappings row overrides that
+    // for the rare product actually listed under a different code.
     const { data: products } = await callerClient
       .from('products')
       .select('id, sku')
@@ -62,6 +66,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .is('deleted_at', null);
 
     const productBySku = new Map((products || []).map((p) => [p.sku.toUpperCase(), p.id]));
+
+    const { data: overrides } = await callerClient
+      .from('product_mappings')
+      .select('product_id, channel_sku')
+      .eq('tenant_id', tenantId)
+      .eq('channel', 'WAYFAIR');
+
+    (overrides || []).forEach((o) => {
+      if (o.channel_sku) productBySku.set(o.channel_sku.toUpperCase(), o.product_id);
+    });
 
     for (const po of purchaseOrders) {
       // A PO where every line item is cancelled is a cancelled order.

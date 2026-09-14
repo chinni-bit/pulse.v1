@@ -62,11 +62,22 @@ const EMPTY_VARIANT_FORM: VariantFormData = {
   quantity_in_bundle: '1',
 };
 
+interface ChannelListing {
+  id: string;
+  channel_sku: string;
+}
+
 export default function Products() {
   const router = useRouter();
   const { user, tenantId, logout } = useAuthStore();
 
   const [products, setProducts] = useState<Product[]>([]);
+  const [channelNames, setChannelNames] = useState<string[]>([]);
+  const [listingsByProduct, setListingsByProduct] = useState<Record<string, Record<string, ChannelListing>>>({});
+  const [listingLoading, setListingLoading] = useState(false);
+  const [listingDrafts, setListingDrafts] = useState<Record<string, string>>({});
+  const [listingSaving, setListingSaving] = useState<string | null>(null);
+  const [listingError, setListingError] = useState('');
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState('');
 
@@ -104,8 +115,21 @@ export default function Products() {
     setLoading(false);
   };
 
+  const fetchChannelNames = async () => {
+    if (!tenantId) return;
+
+    const { data } = await supabase
+      .from('channels')
+      .select('channel_name')
+      .eq('tenant_id', tenantId)
+      .order('channel_name', { ascending: true });
+
+    setChannelNames((data || []).map((c) => c.channel_name));
+  };
+
   useEffect(() => {
     fetchProducts();
+    fetchChannelNames();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
@@ -218,6 +242,24 @@ export default function Products() {
     setVariantLoading(false);
   };
 
+  const fetchListings = async (productId: string) => {
+    setListingLoading(true);
+
+    const { data, error } = await supabase
+      .from('product_mappings')
+      .select('id, channel, channel_sku')
+      .eq('product_id', productId);
+
+    if (!error) {
+      const byChannel: Record<string, ChannelListing> = {};
+      (data || []).forEach((row) => {
+        if (row.channel_sku) byChannel[row.channel] = { id: row.id, channel_sku: row.channel_sku };
+      });
+      setListingsByProduct((prev) => ({ ...prev, [productId]: byChannel }));
+    }
+    setListingLoading(false);
+  };
+
   const toggleVariants = (productId: string) => {
     if (expandedProductId === productId) {
       setExpandedProductId(null);
@@ -226,9 +268,74 @@ export default function Products() {
     setExpandedProductId(productId);
     setVariantForm(EMPTY_VARIANT_FORM);
     setVariantFormError('');
+    setListingDrafts({});
+    setListingError('');
     if (!variantsByProduct[productId]) {
       fetchVariants(productId);
     }
+    if (!listingsByProduct[productId]) {
+      fetchListings(productId);
+    }
+  };
+
+  const removeListing = async (productId: string, channel: string) => {
+    const existing = listingsByProduct[productId]?.[channel];
+    if (!existing) return;
+    if (!window.confirm(`Remove the ${channel} SKU override? This channel will go back to using the product's own SKU.`)) {
+      return;
+    }
+
+    setListingSaving(channel);
+    setListingError('');
+
+    const { error } = await supabase.from('product_mappings').delete().eq('id', existing.id);
+
+    setListingSaving(null);
+    if (error) {
+      setListingError(error.message);
+      return;
+    }
+
+    fetchListings(productId);
+  };
+
+  const saveListing = async (productId: string, channel: string) => {
+    if (!tenantId) return;
+
+    const draftValue = (listingDrafts[channel] ?? '').trim();
+    if (!draftValue) return;
+    const existing = listingsByProduct[productId]?.[channel];
+
+    setListingSaving(channel);
+    setListingError('');
+
+    if (existing) {
+      const { error } = await supabase
+        .from('product_mappings')
+        .update({ channel_sku: draftValue })
+        .eq('id', existing.id);
+      if (error) {
+        setListingError(error.message);
+        setListingSaving(null);
+        return;
+      }
+    } else {
+      const { error } = await supabase.from('product_mappings').insert({
+        tenant_id: tenantId,
+        product_id: productId,
+        channel,
+        channel_sku: draftValue,
+      });
+      if (error) {
+        setListingError(error.message);
+        setListingSaving(null);
+        return;
+      }
+    }
+
+    setListingSaving(null);
+    setListingDrafts((prev) => ({ ...prev, [channel]: '' }));
+    fetchListings(productId);
   };
 
   const handleVariantSubmit = async (e: React.FormEvent, productId: string) => {
@@ -500,7 +607,7 @@ export default function Products() {
                             onClick={() => toggleVariants(product.id)}
                             className="text-slate-600 hover:underline font-medium"
                           >
-                            {expandedProductId === product.id ? 'Hide Variants' : 'Variants'}
+                            {expandedProductId === product.id ? 'Hide Details' : 'Channels / Variants'}
                           </button>
                           <button
                             onClick={() => openEditForm(product)}
@@ -626,6 +733,86 @@ export default function Products() {
                                   </button>
                                 </form>
                               </>
+                            )}
+
+                            <h3 className="text-sm font-semibold text-slate-900 mt-6 mb-3">
+                              Channel Listings for {product.title}
+                            </h3>
+                            <p className="text-xs text-slate-500 mb-3">
+                              By default every channel uses this product&apos;s own SKU (
+                              <strong>{product.sku}</strong>). Only set an override below if a
+                              channel actually lists this product under a different code.
+                            </p>
+
+                            {listingError && (
+                              <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-xs">
+                                {listingError}
+                              </div>
+                            )}
+
+                            {listingLoading ? (
+                              <p className="text-sm text-slate-500">Loading...</p>
+                            ) : channelNames.length === 0 ? (
+                              <p className="text-sm text-slate-500">No channels configured yet.</p>
+                            ) : (
+                              <table className="min-w-full bg-white rounded border border-slate-200">
+                                <thead className="bg-slate-100">
+                                  <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-700">Channel</th>
+                                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-700">SKU Used</th>
+                                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-700">Override</th>
+                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-700">Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {channelNames.map((channel) => {
+                                    const listing = listingsByProduct[product.id]?.[channel];
+                                    const draft = listingDrafts[channel] ?? '';
+                                    return (
+                                      <tr key={channel}>
+                                        <td className="px-4 py-2 text-sm text-slate-700">{channel}</td>
+                                        <td className="px-4 py-2 text-sm text-slate-700">
+                                          {listing ? (
+                                            <span className="font-medium">{listing.channel_sku}</span>
+                                          ) : (
+                                            <span className="text-slate-400">{product.sku} (product SKU)</span>
+                                          )}
+                                        </td>
+                                        <td className="px-4 py-2 text-sm">
+                                          <input
+                                            type="text"
+                                            value={draft}
+                                            onChange={(e) =>
+                                              setListingDrafts((prev) => ({ ...prev, [channel]: e.target.value }))
+                                            }
+                                            placeholder={listing ? listing.channel_sku : 'no override'}
+                                            disabled={listingSaving === channel}
+                                            className="w-40 px-2 py-1 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                                          />
+                                        </td>
+                                        <td className="px-4 py-2 text-sm text-right space-x-3">
+                                          <button
+                                            onClick={() => saveListing(product.id, channel)}
+                                            disabled={listingSaving === channel || !draft.trim()}
+                                            className="text-blue-600 hover:underline font-medium disabled:text-slate-300"
+                                          >
+                                            {listingSaving === channel ? 'Saving...' : 'Set Override'}
+                                          </button>
+                                          {listing && (
+                                            <button
+                                              onClick={() => removeListing(product.id, channel)}
+                                              disabled={listingSaving === channel}
+                                              className="text-red-600 hover:underline font-medium"
+                                            >
+                                              Remove
+                                            </button>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
                             )}
                           </td>
                         </tr>

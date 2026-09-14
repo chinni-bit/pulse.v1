@@ -177,7 +177,7 @@ export default function Channels() {
     setPushResult((prev) => ({
       ...prev,
       [channelName]: res.ok
-        ? `${result.mappingCount} product(s) mapped to this channel, ${result.itemCount} pushed, ${result.errorCount} error(s)`
+        ? `${result.productCount} product(s) (${result.overrideCount} with a SKU override), ${result.itemCount} pushed, ${result.errorCount} error(s)`
         : `Failed: ${result.error}`,
     }));
     setPushing(null);
@@ -213,15 +213,17 @@ export default function Channels() {
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-            Wayfair and Walmart can both pull orders and push inventory. A fully cancelled order
-            is marked Cancelled and excluded from its own total; order line items only link to a
-            local product when the SKU matches exactly - sandbox test SKUs mostly won&apos;t match
-            real products yet, expected, not a bug. Inventory push needs a product mapped to a
-            channel SKU first (<code>product_mappings</code> table - no UI to manage these yet, so
-            it correctly pushes 0 items until at least one exists). Wayfair reports inventory
-            per warehouse (they price/source by shipping cost from each one) - set a Wayfair
-            Supplier ID on a warehouse in <Link href="/warehouses" className="underline">Warehouses</Link>{' '}
-            to include it; warehouses without one are skipped.
+            Wayfair and Walmart can both pull orders and push inventory. By default every product
+            uses its own SKU on both channels (that&apos;s how their APIs are designed to work) -
+            set a channel-specific SKU override on a product in{' '}
+            <Link href="/products" className="underline">Products</Link> only if a channel
+            actually lists it under a different code. A fully cancelled order is marked Cancelled
+            and excluded from its own total; order line items only link to a local product when
+            the SKU matches exactly - sandbox test SKUs mostly won&apos;t match real products yet,
+            expected, not a bug. Wayfair reports inventory per warehouse (they price/source by
+            shipping cost from each one) - set a Wayfair Supplier ID on a warehouse in{' '}
+            <Link href="/warehouses" className="underline">Warehouses</Link> to include it;
+            warehouses without one are skipped.
           </div>
 
           {loading ? (

@@ -43,7 +43,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   let itemCount = 0;
   let errorCount = 0;
-  let mappingCount = 0;
+  let productCount = 0;
+  let overrideCount = 0;
   let warehouseCount = 0;
   let status: 'success' | 'failed' = 'success';
   let errorMessage: string | null = null;
@@ -65,19 +66,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     warehouseCount = warehouses?.length || 0;
 
-    const { data: mappings, error: mappingsError } = await callerClient
+    // Every active product is reportable by default, using its own SKU
+    // as Wayfair's Supplier Part Number (that field is meant to be set
+    // to the supplier's own SKU - confirmed via Wayfair's own
+    // integration docs). product_mappings only needs a row for the rare
+    // product actually listed under a different code.
+    const { data: products, error: productsError } = await callerClient
+      .from('products')
+      .select('id, sku')
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null);
+
+    if (productsError) {
+      throw new Error(`Failed to read products: ${productsError.message}`);
+    }
+
+    productCount = products?.length || 0;
+
+    const { data: overrides, error: overridesError } = await callerClient
       .from('product_mappings')
       .select('product_id, channel_sku')
       .eq('tenant_id', tenantId)
       .eq('channel', 'WAYFAIR');
 
-    if (mappingsError) {
-      throw new Error(`Failed to read product_mappings: ${mappingsError.message}`);
+    if (overridesError) {
+      throw new Error(`Failed to read product_mappings: ${overridesError.message}`);
     }
 
-    mappingCount = mappings?.length || 0;
+    overrideCount = (overrides || []).filter((o) => o.channel_sku).length;
 
-    if (warehouseCount > 0 && mappingCount > 0) {
+    if (warehouseCount > 0 && productCount > 0) {
       const warehouseIds = (warehouses || []).map((w) => w.id);
 
       // batch_locations is the per-warehouse breakdown of inventory_batches
@@ -97,20 +115,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         qtyByProductWarehouse.set(key, (qtyByProductWarehouse.get(key) || 0) + (loc.quantity || 0));
       });
 
-      // One combined push: every mapped product x every configured
+      const skuOverrideByProduct = new Map(
+        (overrides || []).filter((o) => o.channel_sku).map((o) => [o.product_id, o.channel_sku as string])
+      );
+
+      // One combined push: every active product x every configured
       // warehouse, each item tagged with that warehouse's own supplier
-      // ID. Missing combinations push 0, not omitted, so a warehouse
-      // that just sold out is reported accurately instead of silently
-      // left at its last known (wrong) quantity.
-      const items = (mappings || [])
-        .filter((m) => m.channel_sku)
-        .flatMap((m) =>
-          (warehouses || []).map((w) => ({
-            supplierPartNumber: m.channel_sku as string,
-            quantityOnHand: qtyByProductWarehouse.get(`${m.product_id}::${w.id}`) || 0,
-            supplierId: w.wayfair_supplier_id as number,
-          }))
-        );
+      // ID and the product's own SKU unless overridden. Missing
+      // combinations push 0, not omitted, so a warehouse that just sold
+      // out is reported accurately instead of silently left at its last
+      // known (wrong) quantity.
+      const items = (products || []).flatMap((p) =>
+        (warehouses || []).map((w) => ({
+          supplierPartNumber: skuOverrideByProduct.get(p.id) || p.sku,
+          quantityOnHand: qtyByProductWarehouse.get(`${p.id}::${w.id}`) || 0,
+          supplierId: w.wayfair_supplier_id as number,
+        }))
+      );
 
       const result = await pushWayfairInventory(items, false);
       // inventory.save is processed asynchronously - result.itemCount /
@@ -138,9 +159,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const summary =
     warehouseCount === 0
       ? 'no warehouses have a Wayfair supplier ID configured yet - nothing to push'
-      : mappingCount === 0
-        ? 'no products mapped to WAYFAIR yet (product_mappings has no rows for this tenant/channel) - nothing to push'
-        : `${warehouseCount} warehouse(s) configured, ${mappingCount} mapped product(s), items pushed: ${itemCount}, item errors: ${errorCount}` +
+      : productCount === 0
+        ? 'no active products to push'
+        : `${warehouseCount} warehouse(s) configured, ${productCount} product(s) (${overrideCount} with a channel-specific SKU override, rest use their own SKU), items pushed: ${itemCount}, item errors: ${errorCount}` +
           (itemErrors.length ? ` (${itemErrors.join('; ')})` : '');
 
   await callerClient.from('sync_logs').insert({
@@ -159,5 +180,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: errorMessage, summary });
   }
 
-  return res.status(200).json({ warehouseCount, mappingCount, itemCount, errorCount, itemErrors });
+  return res.status(200).json({ warehouseCount, productCount, overrideCount, itemCount, errorCount, itemErrors });
 }

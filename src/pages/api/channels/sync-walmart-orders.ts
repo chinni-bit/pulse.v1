@@ -67,6 +67,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const orders = await getWalmartOrders(100);
 
+    // Default is the product's own SKU (Walmart's seller-supplied "sku"
+    // field is designed to be the seller's own internal SKU); an explicit
+    // product_mappings row overrides that for the rare product actually
+    // listed under a different code.
     const { data: products } = await callerClient
       .from('products')
       .select('id, sku')
@@ -74,6 +78,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .is('deleted_at', null);
 
     const productBySku = new Map((products || []).map((p) => [p.sku.toUpperCase(), p.id]));
+
+    const { data: overrides } = await callerClient
+      .from('product_mappings')
+      .select('product_id, channel_sku')
+      .eq('tenant_id', tenantId)
+      .eq('channel', 'WALMART');
+
+    (overrides || []).forEach((o) => {
+      if (o.channel_sku) productBySku.set(o.channel_sku.toUpperCase(), o.product_id);
+    });
 
     for (const order of orders) {
       const lines = order.orderLines?.orderLine || [];
