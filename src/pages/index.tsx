@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { useAuthStore } from '@/store/authStore';
@@ -13,15 +13,20 @@ export default function Home() {
   const router = useRouter();
   const { user, isLoading, checkAuth } = useAuthStore();
 
+  // See ProtectedRoute.tsx for why this flag matters: without it, this
+  // redirects to /login on the render before checkAuth's first result
+  // comes back, intermittently bouncing already-logged-in users.
+  const [checked, setChecked] = useState(false);
+
   useEffect(() => {
-    checkAuth();
+    checkAuth().finally(() => setChecked(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (isLoading) return;
+    if (!checked || isLoading) return;
     router.replace(user ? '/dashboard' : '/login');
-  }, [user, isLoading, router]);
+  }, [checked, user, isLoading, router]);
 
   return (
     <>

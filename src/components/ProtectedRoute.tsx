@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuthStore } from '@/store/authStore';
 
@@ -10,17 +10,28 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const router = useRouter();
   const { user, isLoading, checkAuth } = useAuthStore();
 
+  // Tracks whether checkAuth's *first* call has resolved. Without this,
+  // the redirect effect below can fire on the render that happens before
+  // checkAuth has set isLoading:true (Zustand's initial state is
+  // isLoading:false, user:null - indistinguishable from "checked and
+  // logged out"), sending a genuinely logged-in user back to /login
+  // before the real auth check ever comes back. This was intermittent:
+  // it depended on exact render/network timing, so it worked sometimes
+  // and bounced others with no code change.
+  const [checked, setChecked] = useState(false);
+
   useEffect(() => {
-    checkAuth();
+    checkAuth().finally(() => setChecked(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkAuth]);
 
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (checked && !isLoading && !user) {
       router.push('/login');
     }
-  }, [user, isLoading, router]);
+  }, [checked, isLoading, user, router]);
 
-  if (isLoading) {
+  if (!checked || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
