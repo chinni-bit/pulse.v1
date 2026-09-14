@@ -33,6 +33,7 @@ const TESTABLE: Record<string, string> = {
 
 const SYNCABLE: Record<string, string> = {
   WAYFAIR: '/api/channels/sync-wayfair-orders',
+  WALMART: '/api/channels/sync-walmart-orders',
 };
 
 export default function Channels() {
@@ -172,10 +173,11 @@ export default function Channels() {
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-            Wayfair can pull dropship purchase orders into Orders below (sandbox data).
-            Line items only link to a local product when the SKU matches exactly - sandbox test
-            SKUs mostly won&apos;t match real products yet, and that&apos;s expected, not a bug.
-            Inventory push and Walmart order sync aren&apos;t built yet.
+            Wayfair and Walmart can both pull orders into Orders below (sandbox data). A fully
+            cancelled order is marked Cancelled and excluded from its own total; line items only
+            link to a local product when the SKU matches exactly - sandbox test SKUs mostly
+            won&apos;t match real products yet, and that&apos;s expected, not a bug. Inventory
+            push isn&apos;t built yet.
           </div>
 
           {loading ? (
