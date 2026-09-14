@@ -1,6 +1,7 @@
 'use client';
 
 import Head from 'next/head';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuthStore } from '@/store/authStore';
@@ -39,7 +40,8 @@ export default function Dashboard() {
         const { data: products } = await supabase
           .from('products')
           .select('id')
-          .eq('tenant_id', tenantId);
+          .eq('tenant_id', tenantId)
+          .is('deleted_at', null);
 
         const { data: batches } = await supabase
           .from('inventory_batches')
@@ -114,6 +116,9 @@ export default function Dashboard() {
               <p className="text-slate-600 text-sm">Inventory Management Dashboard</p>
             </div>
             <div className="flex items-center gap-4">
+              <Link href="/products" className="text-blue-600 hover:underline font-medium">
+                Products
+              </Link>
               <span className="text-slate-600">{user?.email}</span>
               <button
                 onClick={handleLogout}
@@ -205,11 +210,14 @@ export default function Dashboard() {
                 </div>
               </section>
 
-              {/* Phase 1A Notice */}
+              {/* Phase 2 Notice */}
               <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-800">
-                  <strong>Phase 1A:</strong> Basic dashboard with inventory stats and sync status. Inventory CRUD and channel sync
-                  implementation coming Day 2.
+                  <strong>Phase 2 (in progress):</strong> Inventory CRUD —{' '}
+                  <Link href="/products" className="underline font-medium">
+                    manage products
+                  </Link>
+                  . Channel sync (Amazon, Wayfair, Walmart) coming next.
                 </p>
               </div>
             </>
