@@ -1,6 +1,12 @@
 node_modules/
 .next/
 .env.local
+.env.*.local
+.env*.bak
 dist/
 build/
 .vercel/
+
+# Secrets / credentials references (never commit real keys/secrets)
+CREDENTIALS.md
+AUTHENTICATION_STATUS_FINAL.md
