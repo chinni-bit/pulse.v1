@@ -3,7 +3,6 @@
 import Head from 'next/head';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import Link from 'next/link';
 import { useAuthStore } from '@/store/authStore';
 
 export default function Login() {
@@ -107,21 +106,10 @@ export default function Login() {
               </button>
             </form>
 
-            {/* Signup Link */}
-            <p className="text-center text-slate-600 text-sm mt-6">
-              Don't have an account?{' '}
-              <Link href="/signup" className="text-blue-600 hover:underline font-medium">
-                Sign Up
-              </Link>
+            {/* Phase 1: no self-service signup - accounts are admin-created */}
+            <p className="text-center text-slate-500 text-sm mt-6">
+              Need access? Contact your administrator.
             </p>
-          </div>
-
-          {/* Test Credentials (Phase 1A Only) */}
-          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-            <p className="font-medium mb-2">Phase 1A Test Credentials:</p>
-            <p>Email: demo@nestora.com</p>
-            <p>Password: (check Supabase test data)</p>
-            <p className="text-xs mt-2 text-blue-600">Remove this in Phase 2</p>
           </div>
         </div>
       </main>

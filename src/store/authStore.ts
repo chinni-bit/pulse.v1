@@ -71,18 +71,26 @@ export const useAuthStore = create<AuthStore>((set) => ({
       if (!authData.user?.id) throw new Error('Signup succeeded but no user ID returned');
 
       // Create users table entry
+      // Note: `is_active` is intentionally not sent - the users table has
+      // no such column, and inserting it here was causing every signup's
+      // profile-creation step to fail.
       const { error: dbError } = await supabase.from('users').insert({
         id: authData.user.id,
         email,
         full_name: fullName,
         tenant_id: tenantId,
         role: 'admin',
-        is_active: true,
       });
 
       if (dbError) {
-        await supabase.auth.admin.deleteUser(authData.user.id);
-        throw dbError;
+        // Note: we can't clean up the just-created auth user from here -
+        // supabase.auth.admin.* requires the service-role key, which must
+        // never be used client-side (it was being called with the anon
+        // key, which always fails and was masking the real dbError below
+        // behind a generic "Signup failed"). A failed profile insert
+        // leaves an orphaned auth.users row; an admin can remove it from
+        // the Supabase dashboard if that happens.
+        throw new Error(`Failed to create user profile: ${dbError.message}`);
       }
 
       set({ user: authData.user, tenantId, isLoading: false });
