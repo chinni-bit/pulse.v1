@@ -183,3 +183,63 @@ without first checking whether it reproduces outside of automated testing.
   `supabase/migrations/001_initial_schema.sql` in the planning folder does
   not match it (different table/column names, RLS-on-by-default) and has
   been moved to `obsolete docs/`.
+
+
+## Note: this file fell out of sync with the planning-folder copy
+
+Everything between here and the next heading below was tracked only in
+`C:\Users\chinn\Desktop\Claude\Nestora\Pulse\docs\CHANGELOG.md` for several
+rounds (warehouse/order/product UI-UX passes, multiple-listings-per-channel,
+active-warehouse-only dashboard totals, RBAC roles, the custom domain, and
+more) and never got mirrored back here despite this file's own header
+claiming it's the authoritative copy. Not reconciled in this pass -
+flagging rather than silently either overwriting this file's real history
+or leaving the gap undocumented. The planning-folder copy is the complete,
+current one until someone does that reconciliation.
+
+## Third owner feedback pass (2026-09-15, later same day)
+
+- Dashboard: Total Units/Low Stock/Out of Stock now sum from
+  `batch_locations` joined to active warehouses only (owner confirmed every
+  inventory batch upload will assign a warehouse going forward). Verified
+  live with a temporary `batch_locations` row: counted while its warehouse
+  was active, correctly dropped to zero the moment the warehouse was
+  deactivated, cleaned up after.
+- Products - finish group is now a master table (`finish_groups`,
+  tenant-scoped, unique per name) instead of free text, with the same
+  select-or-"+ Add new..." inline pattern already used for Brand.
+- Products - the single free-text `dimensions` field was replaced with
+  structured columns: product length/width/height + unit (in/cm), product
+  weight + unit (lbs/kg), carton length/width/height, carton weight, and a
+  free-text dimension notes field (e.g. seat cushion depth). All shown as
+  separate rows in the read-only detail popup.
+- Products - country of origin is now a dropdown (USA, China, Vietnam,
+  Thailand, Indonesia, India, Mexico, Malaysia, Cambodia) with an "Other"
+  free-text fallback.
+- Products - customer exclusivity reworked from a free-text field into a
+  real model: new `customer_groups` and `customers` tables (per the shape
+  already documented in `06_DATABASE_SCHEMA.md`, built now only because
+  this feature had a hard dependency on them - full Customers management
+  stays deferred) plus a `product_customer_exclusivity` join table allowing
+  any mix of customer groups and/or individual customers per product.
+  Checkboxes in the product row's expand panel, with inline "add new
+  group" / "add new customer" inputs; both persist immediately on
+  check/uncheck.
+- Products can now only be deactivated, never deleted (`toggleActive`
+  replaces the old delete action, flips `products.status` between
+  `ACTIVE`/`INACTIVE`) - protects sales history from ever pointing at a
+  missing product. Verified live both directions.
+- Caught and fixed a real bug during live verification, the same class of
+  bug as the RLS-lockout bug earlier in this file: the 4 new tables
+  (`finish_groups`, `customer_groups`, `customers`,
+  `product_customer_exclusivity`) came out of `apply_migration` with RLS
+  silently enabled and zero policies - every insert failed with a 403,
+  which showed up as the "+ Add" buttons appearing to do nothing. Disabled
+  RLS on all 4 to match the project's permanent app-level
+  `tenant_id`-filtering decision. Worth remembering for every future new
+  table: Supabase's migration tool defaults new tables to RLS-on;
+  explicitly disable it as part of the same migration next time.
+- Migrations applied directly via Supabase MCP (no local migration file,
+  matching this project's established pattern):
+  `product_taxonomy_dimensions_customer_exclusivity` followed by
+  `disable_rls_new_taxonomy_tables`.

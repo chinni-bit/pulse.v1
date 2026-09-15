@@ -13,7 +13,21 @@ const MAX_TITLE_LENGTH = 200;
 const MAX_BRAND_LENGTH = 100;
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 const NEW_BRAND_VALUE = '__new__';
+const NEW_FINISH_GROUP_VALUE = '__new__';
 const PAGE_SIZE_STORAGE_KEY = 'pulse.products.pageSize';
+
+const COUNTRY_OPTIONS = [
+  'USA',
+  'China',
+  'Vietnam',
+  'Thailand',
+  'Indonesia',
+  'India',
+  'Mexico',
+  'Malaysia',
+  'Cambodia',
+  'Other',
+];
 
 type SortKey = 'sku' | 'title' | 'brand_name' | 'product_type' | 'cost' | 'msrp' | 'status';
 type StatusFilter = 'ACTIVE' | 'ALL' | 'INACTIVE' | 'FUTURE';
@@ -30,10 +44,20 @@ interface Product {
   reorder_threshold: number;
   product_type: string | null;
   finish: string | null;
-  finish_group: string | null;
-  dimensions: string | null;
+  finish_group_id: string | null;
+  finish_groups: { name: string } | null;
   country_of_origin: string | null;
-  customer_exclusivity: string | null;
+  product_length: number | null;
+  product_width: number | null;
+  product_height: number | null;
+  dimension_unit: string | null;
+  product_weight: number | null;
+  weight_unit: string | null;
+  carton_length: number | null;
+  carton_width: number | null;
+  carton_height: number | null;
+  carton_weight: number | null;
+  dimension_notes: string | null;
 }
 
 interface ProductFormData {
@@ -47,10 +71,19 @@ interface ProductFormData {
   reorder_threshold: string;
   product_type: string;
   finish: string;
-  finish_group: string;
-  dimensions: string;
+  finish_group_id: string;
   country_of_origin: string;
-  customer_exclusivity: string;
+  product_length: string;
+  product_width: string;
+  product_height: string;
+  dimension_unit: string;
+  product_weight: string;
+  weight_unit: string;
+  carton_length: string;
+  carton_width: string;
+  carton_height: string;
+  carton_weight: string;
+  dimension_notes: string;
 }
 
 const EMPTY_FORM: ProductFormData = {
@@ -64,10 +97,19 @@ const EMPTY_FORM: ProductFormData = {
   reorder_threshold: '10',
   product_type: '',
   finish: '',
-  finish_group: '',
-  dimensions: '',
+  finish_group_id: '',
   country_of_origin: '',
-  customer_exclusivity: '',
+  product_length: '',
+  product_width: '',
+  product_height: '',
+  dimension_unit: 'in',
+  product_weight: '',
+  weight_unit: 'lbs',
+  carton_length: '',
+  carton_width: '',
+  carton_height: '',
+  carton_weight: '',
+  dimension_notes: '',
 };
 
 interface Variant {
@@ -103,6 +145,23 @@ interface WarehouseInventoryRow {
   quantity: number;
 }
 
+interface CustomerGroup {
+  id: string;
+  name: string;
+}
+
+interface CustomerRow {
+  id: string;
+  name: string;
+  customer_group_id: string | null;
+}
+
+interface ExclusivityRow {
+  id: string;
+  customer_group_id: string | null;
+  customer_id: string | null;
+}
+
 export default function Products() {
   const { tenantId } = useAuthStore();
 
@@ -125,6 +184,18 @@ export default function Products() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ACTIVE');
   const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
   const [viewingInventory, setViewingInventory] = useState<WarehouseInventoryRow[] | null>(null);
+
+  const [finishGroups, setFinishGroups] = useState<CustomerGroup[]>([]);
+  const [finishGroupMode, setFinishGroupMode] = useState<'select' | 'new'>('select');
+  const [newFinishGroupName, setNewFinishGroupName] = useState('');
+  const [countryMode, setCountryMode] = useState<'select' | 'other'>('select');
+
+  const [customerGroups, setCustomerGroups] = useState<CustomerGroup[]>([]);
+  const [customers, setCustomers] = useState<CustomerRow[]>([]);
+  const [exclusivityByProduct, setExclusivityByProduct] = useState<Record<string, ExclusivityRow[]>>({});
+  const [exclusivitySaving, setExclusivitySaving] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newCustomerName, setNewCustomerName] = useState('');
 
   useEffect(() => {
     const stored = typeof window !== 'undefined' ? sessionStorage.getItem(PAGE_SIZE_STORAGE_KEY) : null;
@@ -154,7 +225,7 @@ export default function Products() {
     const { data, error } = await supabase
       .from('products')
       .select(
-        'id, sku, title, description, brand_name, cost, msrp, status, reorder_threshold, product_type, finish, finish_group, dimensions, country_of_origin, customer_exclusivity'
+        'id, sku, title, description, brand_name, cost, msrp, status, reorder_threshold, product_type, finish, finish_group_id, finish_groups(name), country_of_origin, product_length, product_width, product_height, dimension_unit, product_weight, weight_unit, carton_length, carton_width, carton_height, carton_weight, dimension_notes'
       )
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
@@ -163,7 +234,7 @@ export default function Products() {
     if (error) {
       setListError(error.message);
     } else {
-      setProducts(data || []);
+      setProducts((data as unknown as Product[]) || []);
     }
     setLoading(false);
   };
@@ -180,9 +251,42 @@ export default function Products() {
     setChannelNames((data || []).map((c) => c.channel_name));
   };
 
+  const fetchFinishGroups = async () => {
+    if (!tenantId) return;
+    const { data } = await supabase
+      .from('finish_groups')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+      .order('name', { ascending: true });
+    setFinishGroups(data || []);
+  };
+
+  const fetchCustomerGroups = async () => {
+    if (!tenantId) return;
+    const { data } = await supabase
+      .from('customer_groups')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+      .order('name', { ascending: true });
+    setCustomerGroups(data || []);
+  };
+
+  const fetchCustomers = async () => {
+    if (!tenantId) return;
+    const { data } = await supabase
+      .from('customers')
+      .select('id, name, customer_group_id')
+      .eq('tenant_id', tenantId)
+      .order('name', { ascending: true });
+    setCustomers(data || []);
+  };
+
   useEffect(() => {
     fetchProducts();
     fetchChannelNames();
+    fetchFinishGroups();
+    fetchCustomerGroups();
+    fetchCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
@@ -216,7 +320,7 @@ export default function Products() {
           (p.description || '').toLowerCase().includes(term) ||
           (p.product_type || '').toLowerCase().includes(term) ||
           (p.finish || '').toLowerCase().includes(term) ||
-          (p.finish_group || '').toLowerCase().includes(term)
+          (p.finish_groups?.name || '').toLowerCase().includes(term)
       );
     }
 
@@ -251,52 +355,55 @@ export default function Products() {
     setEditingId(null);
     setFormData(EMPTY_FORM);
     setBrandMode('select');
+    setFinishGroupMode('select');
+    setCountryMode('select');
     setFormError('');
     setShowForm(true);
   };
 
+  const productToFormData = (product: Product, overrides: Partial<ProductFormData> = {}): ProductFormData => ({
+    sku: product.sku,
+    title: product.title,
+    description: product.description || '',
+    brand_name: product.brand_name || '',
+    cost: product.cost != null ? String(product.cost) : '',
+    msrp: product.msrp != null ? String(product.msrp) : '',
+    status: product.status,
+    reorder_threshold: String(product.reorder_threshold),
+    product_type: product.product_type || '',
+    finish: product.finish || '',
+    finish_group_id: product.finish_group_id || '',
+    country_of_origin: product.country_of_origin || '',
+    product_length: product.product_length != null ? String(product.product_length) : '',
+    product_width: product.product_width != null ? String(product.product_width) : '',
+    product_height: product.product_height != null ? String(product.product_height) : '',
+    dimension_unit: product.dimension_unit || 'in',
+    product_weight: product.product_weight != null ? String(product.product_weight) : '',
+    weight_unit: product.weight_unit || 'lbs',
+    carton_length: product.carton_length != null ? String(product.carton_length) : '',
+    carton_width: product.carton_width != null ? String(product.carton_width) : '',
+    carton_height: product.carton_height != null ? String(product.carton_height) : '',
+    carton_weight: product.carton_weight != null ? String(product.carton_weight) : '',
+    dimension_notes: product.dimension_notes || '',
+    ...overrides,
+  });
+
   const openEditForm = (product: Product) => {
     setEditingId(product.id);
-    setFormData({
-      sku: product.sku,
-      title: product.title,
-      description: product.description || '',
-      brand_name: product.brand_name || '',
-      cost: product.cost != null ? String(product.cost) : '',
-      msrp: product.msrp != null ? String(product.msrp) : '',
-      status: product.status,
-      reorder_threshold: String(product.reorder_threshold),
-      product_type: product.product_type || '',
-      finish: product.finish || '',
-      finish_group: product.finish_group || '',
-      dimensions: product.dimensions || '',
-      country_of_origin: product.country_of_origin || '',
-      customer_exclusivity: product.customer_exclusivity || '',
-    });
+    setFormData(productToFormData(product));
     setBrandMode('select');
+    setFinishGroupMode('select');
+    setCountryMode(product.country_of_origin && !COUNTRY_OPTIONS.includes(product.country_of_origin) ? 'other' : 'select');
     setFormError('');
     setShowForm(true);
   };
 
   const openDuplicateForm = (product: Product) => {
     setEditingId(null);
-    setFormData({
-      sku: '',
-      title: `${product.title} (copy)`,
-      description: product.description || '',
-      brand_name: product.brand_name || '',
-      cost: product.cost != null ? String(product.cost) : '',
-      msrp: product.msrp != null ? String(product.msrp) : '',
-      status: product.status,
-      reorder_threshold: String(product.reorder_threshold),
-      product_type: product.product_type || '',
-      finish: product.finish || '',
-      finish_group: product.finish_group || '',
-      dimensions: product.dimensions || '',
-      country_of_origin: product.country_of_origin || '',
-      customer_exclusivity: product.customer_exclusivity || '',
-    });
+    setFormData(productToFormData(product, { sku: '', title: `${product.title} (copy)` }));
     setBrandMode('select');
+    setFinishGroupMode('select');
+    setCountryMode(product.country_of_origin && !COUNTRY_OPTIONS.includes(product.country_of_origin) ? 'other' : 'select');
     setFormError(`Enter a new SKU for this product - everything else was copied from ${product.sku}`);
     setShowForm(true);
   };
@@ -345,6 +452,8 @@ export default function Products() {
     setSaving(true);
     setFormError('');
 
+    const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
+
     const payload = {
       sku,
       title,
@@ -356,10 +465,19 @@ export default function Products() {
       reorder_threshold: formData.reorder_threshold ? Number(formData.reorder_threshold) : 10,
       product_type: formData.product_type.trim() || null,
       finish: formData.finish.trim() || null,
-      finish_group: formData.finish_group.trim() || null,
-      dimensions: formData.dimensions.trim() || null,
+      finish_group_id: formData.finish_group_id || null,
       country_of_origin: formData.country_of_origin.trim() || null,
-      customer_exclusivity: formData.customer_exclusivity.trim() || null,
+      product_length: numOrNull(formData.product_length),
+      product_width: numOrNull(formData.product_width),
+      product_height: numOrNull(formData.product_height),
+      dimension_unit: formData.dimension_unit || null,
+      product_weight: numOrNull(formData.product_weight),
+      weight_unit: formData.weight_unit || null,
+      carton_length: numOrNull(formData.carton_length),
+      carton_width: numOrNull(formData.carton_width),
+      carton_height: numOrNull(formData.carton_height),
+      carton_weight: numOrNull(formData.carton_weight),
+      dimension_notes: formData.dimension_notes.trim() || null,
     };
 
     const { error } = editingId
@@ -377,21 +495,33 @@ export default function Products() {
     fetchProducts();
   };
 
-  const handleDelete = async (product: Product) => {
-    if (!window.confirm(`Delete "${product.title}" (${product.sku})? This can't be undone from here.`)) {
+  // Products are never hard-deleted (or soft-deleted via deleted_at) -
+  // only deactivated. A deleted product could still be referenced by
+  // historical order_items, and removing it (even "softly", hidden from
+  // every query) would break that link for sales history/reporting.
+  // Deactivating just flips status, same field the Active/Inactive/
+  // Future filter already uses - the row and every reference to it stay
+  // fully intact.
+  const toggleActive = async (product: Product) => {
+    const nextStatus = product.status === 'INACTIVE' ? 'ACTIVE' : 'INACTIVE';
+    if (
+      !window.confirm(
+        nextStatus === 'INACTIVE'
+          ? `Deactivate "${product.title}" (${product.sku})? It'll stop being pushed/synced to channels, but all history stays intact.`
+          : `Reactivate "${product.title}" (${product.sku})?`
+      )
+    ) {
       return;
     }
 
-    const { error } = await supabase
-      .from('products')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', product.id);
+    const { error } = await supabase.from('products').update({ status: nextStatus }).eq('id', product.id);
 
     if (error) {
       setListError(error.message);
       return;
     }
 
+    setViewingProduct(null);
     fetchProducts();
   };
 
@@ -474,6 +604,101 @@ export default function Products() {
     setViewingProduct(product);
     setViewingInventory(null);
     fetchInventoryForProduct(product.id);
+    if (!exclusivityByProduct[product.id]) {
+      fetchExclusivity(product.id);
+    }
+  };
+
+  const createFinishGroup = async (name: string): Promise<string | null> => {
+    if (!tenantId || !name.trim()) return null;
+    const { data, error } = await supabase
+      .from('finish_groups')
+      .insert({ tenant_id: tenantId, name: name.trim() })
+      .select('id, name')
+      .single();
+
+    if (error || !data) {
+      setFormError(error?.message || 'Failed to create finish group');
+      return null;
+    }
+
+    setFinishGroups((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+    return data.id;
+  };
+
+  const fetchExclusivity = async (productId: string) => {
+    const { data, error } = await supabase
+      .from('product_customer_exclusivity')
+      .select('id, customer_group_id, customer_id')
+      .eq('product_id', productId);
+
+    if (!error) {
+      setExclusivityByProduct((prev) => ({ ...prev, [productId]: data || [] }));
+    }
+  };
+
+  const toggleGroupExclusivity = async (productId: string, groupId: string, checked: boolean) => {
+    if (!tenantId) return;
+    setExclusivitySaving(true);
+
+    if (checked) {
+      await supabase.from('product_customer_exclusivity').insert({
+        tenant_id: tenantId,
+        product_id: productId,
+        customer_group_id: groupId,
+      });
+    } else {
+      const existing = exclusivityByProduct[productId]?.find((r) => r.customer_group_id === groupId);
+      if (existing) await supabase.from('product_customer_exclusivity').delete().eq('id', existing.id);
+    }
+
+    setExclusivitySaving(false);
+    fetchExclusivity(productId);
+  };
+
+  const toggleCustomerExclusivity = async (productId: string, customerId: string, checked: boolean) => {
+    if (!tenantId) return;
+    setExclusivitySaving(true);
+
+    if (checked) {
+      await supabase.from('product_customer_exclusivity').insert({
+        tenant_id: tenantId,
+        product_id: productId,
+        customer_id: customerId,
+      });
+    } else {
+      const existing = exclusivityByProduct[productId]?.find((r) => r.customer_id === customerId);
+      if (existing) await supabase.from('product_customer_exclusivity').delete().eq('id', existing.id);
+    }
+
+    setExclusivitySaving(false);
+    fetchExclusivity(productId);
+  };
+
+  const addNewCustomerGroup = async () => {
+    if (!tenantId || !newGroupName.trim()) return;
+    const { data, error } = await supabase
+      .from('customer_groups')
+      .insert({ tenant_id: tenantId, name: newGroupName.trim() })
+      .select('id, name')
+      .single();
+    if (!error && data) {
+      setCustomerGroups((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewGroupName('');
+    }
+  };
+
+  const addNewCustomer = async () => {
+    if (!tenantId || !newCustomerName.trim()) return;
+    const { data, error } = await supabase
+      .from('customers')
+      .insert({ tenant_id: tenantId, name: newCustomerName.trim() })
+      .select('id, name, customer_group_id')
+      .single();
+    if (!error && data) {
+      setCustomers((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewCustomerName('');
+    }
   };
 
   const toggleVariants = (productId: string) => {
@@ -492,6 +717,9 @@ export default function Products() {
     }
     if (!listingsByProduct[productId]) {
       fetchListings(productId);
+    }
+    if (!exclusivityByProduct[productId]) {
+      fetchExclusivity(productId);
     }
   };
 
@@ -823,49 +1051,112 @@ export default function Products() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Finish Group</label>
-                  <input
-                    type="text"
-                    value={formData.finish_group}
-                    onChange={(e) => setFormData({ ...formData, finish_group: e.target.value })}
-                    disabled={saving}
-                    placeholder="e.g. Whites, Espressos"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Dimensions</label>
-                  <input
-                    type="text"
-                    value={formData.dimensions}
-                    onChange={(e) => setFormData({ ...formData, dimensions: e.target.value })}
-                    disabled={saving}
-                    placeholder={'e.g. 54"W x 20"D x 34"H'}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
-                  />
+                  {finishGroupMode === 'select' ? (
+                    <select
+                      value={formData.finish_group_id}
+                      onChange={async (e) => {
+                        if (e.target.value === NEW_FINISH_GROUP_VALUE) {
+                          setFinishGroupMode('new');
+                        } else {
+                          setFormData({ ...formData, finish_group_id: e.target.value });
+                        }
+                      }}
+                      disabled={saving}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                    >
+                      <option value="">Select a finish group...</option>
+                      {finishGroups.map((fg) => (
+                        <option key={fg.id} value={fg.id}>
+                          {fg.name}
+                        </option>
+                      ))}
+                      <option value={NEW_FINISH_GROUP_VALUE}>+ Add new finish group...</option>
+                    </select>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={newFinishGroupName}
+                        onChange={(e) => setNewFinishGroupName(e.target.value)}
+                        disabled={saving}
+                        placeholder="e.g. Brown, Red, Yellow"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const id = await createFinishGroup(newFinishGroupName);
+                          if (id) {
+                            setFormData({ ...formData, finish_group_id: id });
+                            setNewFinishGroupName('');
+                            setFinishGroupMode('select');
+                          }
+                        }}
+                        disabled={saving || !newFinishGroupName.trim()}
+                        className="px-3 text-sm text-blue-600 hover:underline whitespace-nowrap disabled:text-slate-300"
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFinishGroupMode('select')}
+                        disabled={saving}
+                        className="px-3 text-sm text-slate-600 hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Use list
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Country of Origin</label>
-                  <input
-                    type="text"
-                    value={formData.country_of_origin}
-                    onChange={(e) => setFormData({ ...formData, country_of_origin: e.target.value })}
-                    disabled={saving}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Customer Exclusivity</label>
-                  <input
-                    type="text"
-                    value={formData.customer_exclusivity}
-                    onChange={(e) => setFormData({ ...formData, customer_exclusivity: e.target.value })}
-                    disabled={saving}
-                    placeholder="leave blank if not exclusive to one customer"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
-                  />
+                  {countryMode === 'select' ? (
+                    <select
+                      value={COUNTRY_OPTIONS.includes(formData.country_of_origin) ? formData.country_of_origin : ''}
+                      onChange={(e) => {
+                        if (e.target.value === 'Other') {
+                          setCountryMode('other');
+                          setFormData({ ...formData, country_of_origin: '' });
+                        } else {
+                          setFormData({ ...formData, country_of_origin: e.target.value });
+                        }
+                      }}
+                      disabled={saving}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                    >
+                      <option value="">Select a country...</option>
+                      {COUNTRY_OPTIONS.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={formData.country_of_origin}
+                        onChange={(e) => setFormData({ ...formData, country_of_origin: e.target.value })}
+                        disabled={saving}
+                        placeholder="Country name"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCountryMode('select');
+                          setFormData({ ...formData, country_of_origin: '' });
+                        }}
+                        disabled={saving}
+                        className="px-3 text-sm text-slate-600 hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Use list
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="md:col-span-2">
@@ -877,6 +1168,147 @@ export default function Products() {
                     rows={2}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                   />
+                </div>
+
+                <div className="md:col-span-2 border-t border-slate-200 pt-4 mt-1">
+                  <h3 className="text-sm font-semibold text-slate-900 mb-3">Dimensions &amp; Weight</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Product L</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.product_length}
+                        onChange={(e) => setFormData({ ...formData, product_length: e.target.value })}
+                        disabled={saving}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Product W</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.product_width}
+                        onChange={(e) => setFormData({ ...formData, product_width: e.target.value })}
+                        disabled={saving}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Product H</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.product_height}
+                        onChange={(e) => setFormData({ ...formData, product_height: e.target.value })}
+                        disabled={saving}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Dim Unit</label>
+                      <select
+                        value={formData.dimension_unit}
+                        onChange={(e) => setFormData({ ...formData, dimension_unit: e.target.value })}
+                        disabled={saving}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      >
+                        <option value="in">inches</option>
+                        <option value="cm">cm</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Product Weight</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.product_weight}
+                        onChange={(e) => setFormData({ ...formData, product_weight: e.target.value })}
+                        disabled={saving}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Weight Unit</label>
+                      <select
+                        value={formData.weight_unit}
+                        onChange={(e) => setFormData({ ...formData, weight_unit: e.target.value })}
+                        disabled={saving}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      >
+                        <option value="lbs">lbs</option>
+                        <option value="kg">kg</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Carton Weight</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.carton_weight}
+                        onChange={(e) => setFormData({ ...formData, carton_weight: e.target.value })}
+                        disabled={saving}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+                    <div />
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Carton L</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.carton_length}
+                        onChange={(e) => setFormData({ ...formData, carton_length: e.target.value })}
+                        disabled={saving}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Carton W</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.carton_width}
+                        onChange={(e) => setFormData({ ...formData, carton_width: e.target.value })}
+                        disabled={saving}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Carton H</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.carton_height}
+                        onChange={(e) => setFormData({ ...formData, carton_height: e.target.value })}
+                        disabled={saving}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Dimension Notes <span className="text-slate-400">(e.g. seat cushion depth)</span>
+                    </label>
+                    <textarea
+                      value={formData.dimension_notes}
+                      onChange={(e) => setFormData({ ...formData, dimension_notes: e.target.value })}
+                      disabled={saving}
+                      rows={2}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                    />
+                  </div>
                 </div>
 
                 <div className="md:col-span-2 flex gap-3">
@@ -996,10 +1428,12 @@ export default function Products() {
                             Duplicate
                           </button>
                           <button
-                            onClick={() => handleDelete(product)}
-                            className="text-red-600 hover:underline font-medium"
+                            onClick={() => toggleActive(product)}
+                            className={`hover:underline font-medium ${
+                              product.status === 'INACTIVE' ? 'text-green-700' : 'text-red-600'
+                            }`}
                           >
-                            Delete
+                            {product.status === 'INACTIVE' ? 'Activate' : 'Deactivate'}
                           </button>
                         </td>
                       </tr>
@@ -1217,6 +1651,108 @@ export default function Products() {
                                 })}
                               </div>
                             )}
+
+                            <h3 className="text-sm font-semibold text-slate-900 mt-6 mb-3">
+                              Customer Exclusivity for {product.title}
+                            </h3>
+                            <p className="text-xs text-slate-500 mb-3">
+                              Leave everything unchecked if this product isn&apos;t exclusive to anyone.
+                              Check a customer group and/or specific customers to restrict it.
+                            </p>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="bg-white rounded border border-slate-200 p-3">
+                                <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">
+                                  Customer Groups
+                                </p>
+                                {customerGroups.length === 0 ? (
+                                  <p className="text-xs text-slate-400 mb-2">No customer groups yet.</p>
+                                ) : (
+                                  <div className="space-y-1 mb-2 max-h-36 overflow-y-auto">
+                                    {customerGroups.map((g) => {
+                                      const checked = (exclusivityByProduct[product.id] || []).some(
+                                        (r) => r.customer_group_id === g.id
+                                      );
+                                      return (
+                                        <label key={g.id} className="flex items-center gap-2 text-sm text-slate-700">
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            disabled={exclusivitySaving}
+                                            onChange={(e) => toggleGroupExclusivity(product.id, g.id, e.target.checked)}
+                                            className="rounded border-slate-300"
+                                          />
+                                          {g.name}
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={newGroupName}
+                                    onChange={(e) => setNewGroupName(e.target.value)}
+                                    placeholder="New group name"
+                                    className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                                  />
+                                  <button
+                                    onClick={addNewCustomerGroup}
+                                    disabled={!newGroupName.trim()}
+                                    className="text-xs text-blue-600 hover:underline font-medium disabled:text-slate-300"
+                                  >
+                                    + Add
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="bg-white rounded border border-slate-200 p-3">
+                                <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">
+                                  Individual Customers
+                                </p>
+                                {customers.length === 0 ? (
+                                  <p className="text-xs text-slate-400 mb-2">No customers yet.</p>
+                                ) : (
+                                  <div className="space-y-1 mb-2 max-h-36 overflow-y-auto">
+                                    {customers.map((c) => {
+                                      const checked = (exclusivityByProduct[product.id] || []).some(
+                                        (r) => r.customer_id === c.id
+                                      );
+                                      return (
+                                        <label key={c.id} className="flex items-center gap-2 text-sm text-slate-700">
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            disabled={exclusivitySaving}
+                                            onChange={(e) =>
+                                              toggleCustomerExclusivity(product.id, c.id, e.target.checked)
+                                            }
+                                            className="rounded border-slate-300"
+                                          />
+                                          {c.name}
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={newCustomerName}
+                                    onChange={(e) => setNewCustomerName(e.target.value)}
+                                    placeholder="New customer name"
+                                    className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                                  />
+                                  <button
+                                    onClick={addNewCustomer}
+                                    disabled={!newCustomerName.trim()}
+                                    className="text-xs text-blue-600 hover:underline font-medium disabled:text-slate-300"
+                                  >
+                                    + Add
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -1264,7 +1800,7 @@ export default function Products() {
             <DetailField label="Brand" value={viewingProduct.brand_name} />
             <DetailField label="Product Type" value={viewingProduct.product_type} />
             <DetailField label="Finish" value={viewingProduct.finish} />
-            <DetailField label="Finish Group" value={viewingProduct.finish_group} />
+            <DetailField label="Finish Group" value={viewingProduct.finish_groups?.name} />
             <DetailField label="Status" value={viewingProduct.status} />
             <DetailField
               label="Cost / MSRP"
@@ -1272,9 +1808,50 @@ export default function Products() {
                 viewingProduct.msrp != null ? `$${viewingProduct.msrp.toFixed(2)}` : '—'
               }`}
             />
-            <DetailField label="Dimensions" value={viewingProduct.dimensions} />
+            <DetailField
+              label="Product Dimensions"
+              value={
+                viewingProduct.product_length || viewingProduct.product_width || viewingProduct.product_height
+                  ? `${viewingProduct.product_length ?? '—'} x ${viewingProduct.product_width ?? '—'} x ${
+                      viewingProduct.product_height ?? '—'
+                    } ${viewingProduct.dimension_unit || ''}`
+                  : null
+              }
+            />
+            <DetailField
+              label="Product Weight"
+              value={viewingProduct.product_weight != null ? `${viewingProduct.product_weight} ${viewingProduct.weight_unit || ''}` : null}
+            />
+            <DetailField
+              label="Carton Dimensions"
+              value={
+                viewingProduct.carton_length || viewingProduct.carton_width || viewingProduct.carton_height
+                  ? `${viewingProduct.carton_length ?? '—'} x ${viewingProduct.carton_width ?? '—'} x ${
+                      viewingProduct.carton_height ?? '—'
+                    } ${viewingProduct.dimension_unit || ''}`
+                  : null
+              }
+            />
+            <DetailField
+              label="Carton Weight"
+              value={viewingProduct.carton_weight != null ? `${viewingProduct.carton_weight} ${viewingProduct.weight_unit || ''}` : null}
+            />
+            <DetailField label="Dimension Notes" value={viewingProduct.dimension_notes} />
             <DetailField label="Country of Origin" value={viewingProduct.country_of_origin} />
-            <DetailField label="Customer Exclusivity" value={viewingProduct.customer_exclusivity} />
+            <DetailField
+              label="Customer Exclusivity"
+              value={
+                (exclusivityByProduct[viewingProduct.id] || []).length === 0
+                  ? null
+                  : (exclusivityByProduct[viewingProduct.id] || [])
+                      .map((r) => {
+                        if (r.customer_group_id) return customerGroups.find((g) => g.id === r.customer_group_id)?.name;
+                        return customers.find((c) => c.id === r.customer_id)?.name;
+                      })
+                      .filter(Boolean)
+                      .join(', ')
+              }
+            />
             <DetailField label="Description" value={viewingProduct.description} />
 
             <div>
