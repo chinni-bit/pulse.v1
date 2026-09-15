@@ -1,4 +1,4 @@
-# Phase 1A Changelog
+﻿# Phase 1A Changelog
 
 What actually shipped between the Day-1 cowork session handoff and a working,
 admin-only login + dashboard, and why. Written after the fact from the real
@@ -165,81 +165,294 @@ without first checking whether it reproduces outside of automated testing.
   deferred to a future, not-yet-scoped phase** (owner's call, 2026-09-14).
   Priority is core business logic (inventory + channel sync), kept simple.
 
-## Phase 2 kickoff (2026-09-14)
+## Phase 2 (2026-09-14)
 
-- **Added `src/pages/products.tsx`** — first Inventory CRUD page: list, add,
-  edit, and soft-delete products, filtered by `tenant_id`. Delete sets the
-  existing `products.deleted_at` column rather than removing the row.
-  Verified end-to-end against the live dev database (list showed all 15
-  seeded products; added a test row, edited it, deleted it, confirmed it
-  disappeared from the list without touching the real rows).
-- **`dashboard.tsx`'s SKU count now also excludes soft-deleted products**
+- ✅ Products CRUD (`products.tsx`), Warehouses CRUD (`warehouses.tsx`),
+  and product Variants (inline on the Products page — links a product to
+  another as a bundle/kit component). All filtered by `tenant_id`. First
+  cut of `products.tsx` used soft-delete via `products.deleted_at`;
+  superseded by the deactivate-only model in the Third owner feedback pass
+  below. Real Supabase schema for `products` confirmed directly against
+  the live `pulse-v1` project via the Supabase MCP tool — the previously-
+  committed `supabase/migrations/001_initial_schema.sql` in the planning
+  folder does not match it (different table/column names, RLS-on-by-
+  default) and has been moved to `obsolete docs/`.
+- ✅ `dashboard.tsx`'s SKU count also excludes soft-deleted products
   (`.is('deleted_at', null)`) — a gap this page's soft-delete pattern
   exposed; without it the dashboard stat would over-count.
-- Real Supabase schema for `products` (`sku`, `title`, `description`,
-  `brand_name`, `cost`, `msrp`, `customer_exclusivity`, `status`,
-  `deleted_at`) confirmed directly against the live `pulse-v1` project via
-  the Supabase MCP tool — the previously-committed
-  `supabase/migrations/001_initial_schema.sql` in the planning folder does
-  not match it (different table/column names, RLS-on-by-default) and has
-  been moved to `obsolete docs/`.
+- ✅ Low-stock alerting — added `products.reorder_threshold` and wired the
+  dashboard's Low Stock tile to real data.
+- ✅ Admin UI for creating users (`/admin/users` + a server-side API
+  route) — **blocked on adding `SUPABASE_SERVICE_ROLE_KEY`** to the
+  environment before account creation actually works; the user list
+  itself works today. See `decisions/002-...md`'s "Blocked — needs owner
+  input" section.
+- ✅ Channel sync connection layer for Wayfair + Walmart (Amazon out of
+  scope for this round, owner's call). Owner provided sandbox API
+  credentials for both; stored only in `.env.local` (gitignored, never
+  committed). `/channels` page with a "Test Connection" button per
+  channel, verified live end-to-end for both (direct HTTP against the
+  running app, bypassing the browser). Wayfair confirmed sandbox-scoped;
+  its real data API is GraphQL, introspection confirms 4 reachable
+  queries including `getDropshipPurchaseOrders`. Walmart OAuth confirmed
+  working, not yet exercised beyond token issuance. Actual product/order
+  sync is not built yet — this is connection verification only.
+- ✅ Wayfair order pull, done and verified live twice (idempotent — a
+  second run against the same data correctly created 0 duplicates).
+  Discovered `getDropshipPurchaseOrders`'s real shape via GraphQL
+  introspection, pulls into `orders`/`order_items`, matches line items to
+  local products by exact SKU (skips and counts unmatched ones rather
+  than failing, since `order_items.product_id` is required). 25 sandbox
+  purchase orders pulled in; sandbox SKUs don't match Nestora's real
+  catalog so 0 line items matched yet — expected with sandbox data.
+- ✅ Walmart order pull + cancelled-order handling for both channels —
+  a PO/order where every line is cancelled is now stored as `CANCELLED`
+  with its cancelled value excluded from the total, and re-syncing
+  reconciles existing orders instead of just skipping them. Caught and
+  fixed two real bugs along the way: a Wayfair PO that had already been
+  pulled in as a normal order despite being fully cancelled, and a
+  Walmart-side bug where `chargeAmount.amount` being a string for some
+  orders made JS's `+` do string concatenation instead of addition
+  (`0 + '10'` → `'010'`), silently producing wrong totals.
+- ✅ Inventory push for both channels. Walmart: straightforward, verified
+  live. Wayfair: originally built around one supplier ID per account,
+  corrected (owner, 2026-09-14) to one supplier ID **per warehouse** —
+  Wayfair uses it to compute shipping cost and decide sourcing per
+  warehouse. Added `warehouses.wayfair_supplier_id`, set for NJ/WH100
+  (81454) and MS/WH800 (81852); manageable right on the Warehouses page.
+  Also caught a real bug: Wayfair's inventory mutation is async, so its
+  immediate response's item/error counts are always ~0 regardless of
+  outcome — was silently reporting every successful push as "0 items,"
+  fixed by counting from the one field that *is* populated immediately.
+- ✅ Channel SKU mapping — verified against Wayfair's and Walmart's own
+  docs first: both APIs are designed around the seller's own SKU
+  (Wayfair's "Supplier Part Number", Walmart's "sku" field are both
+  seller-assigned, not channel-assigned), so both order-pull and
+  inventory-push for both channels now default to a product's own SKU,
+  with `product_mappings` as an optional override only — previously push
+  required an explicit mapping row to push anything at all, which was
+  backwards. New "Channel Listings" UI on the Products page manages the
+  overrides. Verified live: pushed all 15 products to Wayfair with zero
+  mapping rows in existence, 0 errors. Also found Walmart's sandbox
+  enforces a real rate limit (mitigated with a 1s delay between calls,
+  not eliminated) and that this sandbox account's inventory GET doesn't
+  reflect PUT writes (a "static" sandbox quirk, not a bug in this app).
+- A chunk of this session's browser-based UI testing was unreliable
+  because the browser pane was backgrounded (throttling the page's own
+  JS timers, not a real app defect — confirmed via direct DOM
+  inspection and by checking the dev server log/direct HTTP requests,
+  which stayed fast and error-free throughout). See the decisions doc for
+  exactly what did and didn't get full click-through UI verification.
 
+## Owner UI/UX feedback pass (2026-09-14)
 
-## Note: this file fell out of sync with the planning-folder copy
+Owner did a hands-on pass over the live app and gave a large batch of
+feedback across every page. All addressed in one round, verified live
+(TypeScript compiles clean project-wide, every changed page hit and
+screenshotted, several behaviors exercised end-to-end — see the
+decisions doc for exact test detail):
 
-Everything between here and the next heading below was tracked only in
-`C:\Users\chinn\Desktop\Claude\Nestora\Pulse\docs\CHANGELOG.md` for several
-rounds (warehouse/order/product UI-UX passes, multiple-listings-per-channel,
-active-warehouse-only dashboard totals, RBAC roles, the custom domain, and
-more) and never got mirrored back here despite this file's own header
-claiming it's the authoritative copy. Not reconciled in this pass -
-flagging rather than silently either overwriting this file's real history
-or leaving the gap undocumented. The planning-folder copy is the complete,
-current one until someone does that reconciliation.
+- ✅ Consistent app-wide header/nav (`AppHeader` component) on every
+  page — was previously a different, incomplete link set per page.
+  Login and header tagline unified to "Inventory & Sales Management."
+  Tenant name now shown top-right on every page.
+- ✅ Dashboard: "Active SKUs" (was counting all statuses) + new "Out of
+  Stock" tile alongside Low Stock; status banner rewritten to reflect
+  what's actually live instead of stale "coming next" copy.
+- ✅ Products: sortable columns, search (SKU/title/brand/description),
+  configurable pagination (25/50/100/200); brand is now a dropdown of
+  existing values + "add new"; Status gained a Future option; a
+  Duplicate action pre-fills the Add form from an existing product;
+  guardrails added against negative cost/MSRP and oversized
+  SKU/title/brand (client-side + DB `CHECK` constraints, both — found
+  live during this session that unguarded input could blow out the
+  table layout entirely).
+- ✅ Warehouses: address + contact name/phone/email fields added.
+- ✅ Users: now editable (name/role) with last-admin protection (can't
+  demote/move the last admin or super admin of a tenant — verified live,
+  correctly refused); role model expanded to
+  `super_admin`/`admin`/`user`; a super admin can create/edit users
+  across tenants with a tenant filter, a plain admin is scoped to their
+  own tenant only. 8 orphaned seed profile rows with no real login (no
+  matching `auth.users` row) deleted from the database.
+- ✅ Channels: Amazon's badge no longer claims "Active" when nothing's
+  connected; sync log rows no longer render success text in red;
+  Walmart and Amazon's internal channel codes renamed to `WM3P` /
+  `AMAZON3P` (across `channels`, `orders`, `sync_logs`,
+  `product_mappings`) to leave room for the not-yet-integrated
+  `WM1P`/`WMDS`/`AmazonDS` accounts; each channel now has an editable
+  auto-sync interval (persisted, defaulted to 5 min); sync log rows are
+  clickable and open a drilldown of the exact orders/items touched by
+  that run (added `sync_logs.synced_order_ids` /
+  `.pushed_items`) — verified live by forcing a resync mismatch and
+  confirming the drilldown correctly showed the one order it fixed.
+- ✅ New `/orders` page — all orders across channels, filterable by
+  channel, sortable, paginated.
+- ✅ New `/api/cron/sync-channels` — a secret-header-gated route that
+  auto-pulls orders for every tenant/channel whose configured interval
+  has elapsed, sharing the exact same sync logic as the manual "Pull
+  Orders" button (extracted into `src/lib/syncOrders.ts`). Wired into
+  `vercel.json` as a daily cron. **Caveat, not silently glossed over:**
+  Vercel's Hobby (free) plan only allows daily-granularity cron
+  triggers, not hourly — true hourly automation needs either a paid
+  Vercel plan upgrade or an external free pinger hitting this route with
+  the `x-cron-secret` header. Owner hasn't decided which; route works
+  either way once triggered.
+- **Explicitly not done, by design:** a tenant-code login field to allow
+  duplicate usernames across tenants (Supabase Auth requires
+  project-wide-unique emails; reworking that is a bigger, riskier change
+  than the ask needed — tenant name is now shown in the header instead)
+  and full `editor`/`viewer` permission enforcement (would require
+  gating every write endpoint individually; shipping unenforced role
+  labels was judged worse than not having them yet).
+
+## Second owner UI/UX feedback pass (2026-09-15)
+
+Another large batch, addressed in one round (TypeScript compiles clean
+project-wide; every changed page hit and click-tested live, including a
+schema bug the live test itself caught and fixed - see below):
+
+- ✅ Login: show/hide password toggle (eye icon), verified live -
+  toggling switches the field's type and the button's accessible label.
+- ✅ Warehouses: hard delete replaced with Activate/Deactivate
+  (`warehouses.is_active`); "Show deactivated" filter; dashboard's
+  Warehouses tile and the Wayfair inventory push both now only count
+  active warehouses.
+  ⚠️ **Known gap, not silently worked around:** "only active warehouses"
+  couldn't be extended to Total Units/Low Stock/Out of Stock, because
+  `batch_locations` (the table that actually links inventory to a
+  specific warehouse) is empty for all real product data today - nothing
+  has ever assigned real inventory to a warehouse via that table. Those
+  three dashboard numbers still come from `inventory_batches` directly
+  (warehouse-agnostic). Needs an owner decision: add `warehouse_id`
+  straight onto `inventory_batches`, or start populating
+  `batch_locations` for real batches. **Resolved in the Third owner
+  feedback pass below.**
+- ✅ Warehouses + Orders + Products: clicking the ID/SKU/title now opens
+  a read-only detail popup (shared `DetailModal` component) with an Edit
+  button, instead of jumping straight to edit mode.
+- ✅ Orders: line items shown per order (SKU + title), both as a compact
+  column and in full in the detail popup; date-range filtering with 8
+  presets (Today default, Yesterday, Last 7/30 Days, Month to Date, Year
+  to Date, All Time, Custom Range) - verified live, "Today" correctly
+  shows 0 of 57 since all sandbox orders predate today.
+- ✅ Channels: sync-log drilldown extended to show line items per order
+  (expandable rows), not just PO/total.
+- ✅ Products: rows-per-page now persists for the browser session
+  (`sessionStorage`); defaults to Active-only with a status filter for
+  All/Inactive/Future; "Channels" button renamed "Listings" (it covers
+  variants + channel listings, not just channels); added Product Type
+  (sortable + searchable), Finish, Finish Group, Dimensions, Country of
+  Origin fields; exposed the previously-unused `customer_exclusivity`
+  column; new read-only detail popup (description, dimensions, country
+  of origin, per-warehouse inventory - correctly shows "no breakdown
+  recorded yet" given the `batch_locations` gap above).
+- ✅ **Multiple listings per channel** - a product can now be sold under
+  several different names/SKUs on the same channel (e.g. "Farmhouse
+  Dresser" and "Modern Dresser" both mapping to the same product on
+  Amazon). **Caught and fixed a real bug during live verification:** a
+  pre-existing `UNIQUE (tenant_id, product_id, channel)` constraint on
+  `product_mappings` blocked a second listing on the same channel
+  outright - replaced with `UNIQUE (tenant_id, product_id, channel,
+  channel_sku)`. Also had to fix both inventory-push routes
+  (Wayfair/Walmart), which previously kept only the last override per
+  product in a `Map` - now every listing for a product gets pushed
+  separately under its own SKU. Verified live: added two listings to one
+  product on Amazon3P, confirmed both persisted correctly in the
+  database, cleaned up test data after.
+- ✅ Dashboard: Low Stock and Out of Stock tiles are now clickable,
+  opening a popup listing the exact SKUs behind the count - verified
+  live against real data (11 SKUs each, correct threshold values shown).
+- ✅ DB schema audit done. Found and exposed `products
+  .customer_exclusivity` (previously an unused column, superseded by the
+  real customer-exclusivity model built in the Third owner feedback pass
+  below). Found several entirely unused tables not wired into any code -
+  `returns`/`return_items`/`refunds`, `order_fulfillment`,
+  `batch_movements`, `audit_logs`, `user_permissions`, plus a stray
+  unused `inventory`/`catalog_mappings` pair that predates the actual
+  `inventory_batches`/`batch_locations`/`product_mappings` model built
+  in this app - each is its own real feature, folded into the Phase C
+  discussion below rather than bolted on here.
+
+**Explicitly deferred to a dedicated follow-up (not started this
+round):** the full analytics/graphs suite (inventory trends, sales
+trends by SKU/collection/channel, channel performance comparisons by
+time period), a new Inventory page (per-warehouse + total-per-SKU view),
+and Retail Customers / Customer Groups management. Each is substantial
+enough to deserve its own design pass. Also waiting on owner input:
+WMDS (Walmart dropship/vendor) integration - needs whatever developer
+credentials Walmart's vendor portal issues, likely a different
+integration path than the Marketplace API already built; and the full
+list of sales channels, to work out which ones can auto-connect vs.
+need manual/FTP/email inventory publishing.
 
 ## Third owner feedback pass (2026-09-15, later same day)
 
-- Dashboard: Total Units/Low Stock/Out of Stock now sum from
-  `batch_locations` joined to active warehouses only (owner confirmed every
-  inventory batch upload will assign a warehouse going forward). Verified
-  live with a temporary `batch_locations` row: counted while its warehouse
-  was active, correctly dropped to zero the moment the warehouse was
+- ✅ Dashboard: Total Units/Low Stock/Out of Stock now sum from
+  `batch_locations` joined to active warehouses only, closing the gap
+  flagged in the prior round (owner confirmed every inventory batch
+  upload will assign a warehouse going forward). Verified live with a
+  temporary `batch_locations` row: counted while its warehouse was
+  active, correctly dropped to zero the moment the warehouse was
   deactivated, cleaned up after.
-- Products - finish group is now a master table (`finish_groups`,
+- ✅ Products - finish group is now a master table (`finish_groups`,
   tenant-scoped, unique per name) instead of free text, with the same
   select-or-"+ Add new..." inline pattern already used for Brand.
-- Products - the single free-text `dimensions` field was replaced with
-  structured columns: product length/width/height + unit (in/cm), product
-  weight + unit (lbs/kg), carton length/width/height, carton weight, and a
-  free-text dimension notes field (e.g. seat cushion depth). All shown as
-  separate rows in the read-only detail popup.
-- Products - country of origin is now a dropdown (USA, China, Vietnam,
-  Thailand, Indonesia, India, Mexico, Malaysia, Cambodia) with an "Other"
-  free-text fallback.
-- Products - customer exclusivity reworked from a free-text field into a
-  real model: new `customer_groups` and `customers` tables (per the shape
-  already documented in `06_DATABASE_SCHEMA.md`, built now only because
-  this feature had a hard dependency on them - full Customers management
-  stays deferred) plus a `product_customer_exclusivity` join table allowing
-  any mix of customer groups and/or individual customers per product.
-  Checkboxes in the product row's expand panel, with inline "add new
-  group" / "add new customer" inputs; both persist immediately on
-  check/uncheck.
-- Products can now only be deactivated, never deleted (`toggleActive`
+- ✅ Products - the single free-text `dimensions` field was replaced
+  with structured columns: product length/width/height + unit (in/cm),
+  product weight + unit (lbs/kg), carton length/width/height, carton
+  weight, and a free-text dimension notes field (e.g. seat cushion
+  depth). All shown as separate rows in the read-only detail popup.
+- ✅ Products - country of origin is now a dropdown (USA, China,
+  Vietnam, Thailand, Indonesia, India, Mexico, Malaysia, Cambodia) with
+  an "Other" free-text fallback.
+- ✅ Products - customer exclusivity reworked from a free-text field
+  into a real model: new `customer_groups` and `customers` tables (per
+  the shape already documented in `06_DATABASE_SCHEMA.md`, built now
+  only because this feature had a hard dependency on them - full
+  Customers management stays deferred, see below) plus a
+  `product_customer_exclusivity` join table allowing any mix of
+  customer groups and/or individual customers per product. Checkboxes
+  in the product row's expand panel, with inline "add new group" / "add
+  new customer" inputs; both persist immediately on check/uncheck, no
+  separate save step.
+- ✅ Products can now only be deactivated, never deleted (`toggleActive`
   replaces the old delete action, flips `products.status` between
   `ACTIVE`/`INACTIVE`) - protects sales history from ever pointing at a
-  missing product. Verified live both directions.
-- Caught and fixed a real bug during live verification, the same class of
-  bug as the RLS-lockout bug earlier in this file: the 4 new tables
-  (`finish_groups`, `customer_groups`, `customers`,
+  missing product. Verified live both directions (deactivate removes it
+  from the Active-only default view; reactivate brings it back).
+- **Caught and fixed a real bug during live verification, the same
+  class of bug as item 4 in the very first bug list above:** the 4 new
+  tables (`finish_groups`, `customer_groups`, `customers`,
   `product_customer_exclusivity`) came out of `apply_migration` with RLS
   silently enabled and zero policies - every insert failed with a 403,
-  which showed up as the "+ Add" buttons appearing to do nothing. Disabled
-  RLS on all 4 to match the project's permanent app-level
-  `tenant_id`-filtering decision. Worth remembering for every future new
-  table: Supabase's migration tool defaults new tables to RLS-on;
-  explicitly disable it as part of the same migration next time.
-- Migrations applied directly via Supabase MCP (no local migration file,
+  which showed up as the "+ Add" buttons appearing to do nothing (no
+  error surfaced in the UI, because the calling code's error handling
+  was itself never exercised by a successful path until this was found).
+  Disabled RLS on all 4 to match the project's permanent app-level
+  `tenant_id`-filtering decision. **Worth remembering for every future
+  new table:** Supabase's migration tool appears to default new tables
+  to RLS-on; explicitly disable it as part of the same migration next
+  time, not as an after-the-fact fix.
+- Migration applied directly via Supabase MCP (no local migration file,
   matching this project's established pattern):
   `product_taxonomy_dimensions_customer_exclusivity` followed by
   `disable_rls_new_taxonomy_tables`.
+
+## A note on this file's own history
+
+`docs/CHANGELOG.md` in this code repo and the mirror copy at
+`C:\Users\chinn\Desktop\Claude\Nestora\Pulse\docs\CHANGELOG.md` drifted
+apart for several rounds (2026-09-14 through the first half of
+2026-09-15) — only the planning-folder copy got updated in practice,
+despite this file's own header claiming to be authoritative. Reconciled
+on 2026-09-15 by merging both: the early Phase 1A sections above kept
+this file's more detailed wording (it had specifics the other copy had
+condensed away — the GitHub Desktop "Undo" behavior, the exact
+`nestora-pulse` credential-rotation steps, the MS 365/admin-panel
+deferral decision); everything from "Phase 2 (2026-09-14)" onward came
+from the planning-folder copy, which was the only one kept current
+through the two owner UI/UX feedback rounds and the dashboard/Products
+taxonomy round. Both files now match exactly except for this section and
+each file's own opening framing line. Going forward, update both copies
+in the same turn rather than letting them diverge again.
