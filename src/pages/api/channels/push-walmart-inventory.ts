@@ -78,10 +78,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       throw new Error(`Failed to read product_mappings: ${overridesError.message}`);
     }
 
-    const skuOverrideByProduct = new Map(
-      (overrides || []).filter((o) => o.channel_sku).map((o) => [o.product_id, o.channel_sku as string])
-    );
-    overrideCount = skuOverrideByProduct.size;
+    // A product can be listed under several different SKUs on the same
+    // channel now (owner feedback 2026-09-15 - same product sold under
+    // multiple names). Every listing for a product replaces the default
+    // own-SKU push, not just the first/last one found.
+    const listingsByProduct = new Map<string, string[]>();
+    (overrides || [])
+      .filter((o) => o.channel_sku)
+      .forEach((o) => {
+        const list = listingsByProduct.get(o.product_id) || [];
+        list.push(o.channel_sku as string);
+        listingsByProduct.set(o.product_id, list);
+      });
+    overrideCount = overrides?.filter((o) => o.channel_sku).length || 0;
 
     if (productCount > 0) {
       const { data: batches } = await callerClient
@@ -103,19 +112,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // which this doesn't have yet - each failure here is just counted
       // and reported, not retried.
       for (const product of products || []) {
-        const sku = skuOverrideByProduct.get(product.id) || product.sku;
+        const skus = listingsByProduct.get(product.id) || [product.sku];
         const quantity = availableByProduct.get(product.id) || 0;
 
-        try {
-          await pushWalmartInventory(sku, quantity);
-          itemCount++;
-          pushedItems.push({ sku, quantity });
-        } catch (err) {
-          errorCount++;
-          itemErrors.push(`${sku}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-        }
+        for (const sku of skus) {
+          try {
+            await pushWalmartInventory(sku, quantity);
+            itemCount++;
+            pushedItems.push({ sku, quantity });
+          } catch (err) {
+            errorCount++;
+            itemErrors.push(`${sku}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          }
 
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
       }
 
       if (errorCount > 0 && itemCount === 0) {

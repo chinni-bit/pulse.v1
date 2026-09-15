@@ -59,6 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .from('warehouses')
       .select('id, code, wayfair_supplier_id')
       .eq('tenant_id', tenantId)
+      .eq('is_active', true)
       .not('wayfair_supplier_id', 'is', null);
 
     if (warehousesError) {
@@ -116,22 +117,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         qtyByProductWarehouse.set(key, (qtyByProductWarehouse.get(key) || 0) + (loc.quantity || 0));
       });
 
-      const skuOverrideByProduct = new Map(
-        (overrides || []).filter((o) => o.channel_sku).map((o) => [o.product_id, o.channel_sku as string])
-      );
+      // A product can be listed under several different SKUs on the same
+      // channel now (owner feedback 2026-09-15 - same product sold under
+      // multiple names). Every listing for a product replaces the
+      // default own-SKU push, not just the first/last one found.
+      const listingsByProduct = new Map<string, string[]>();
+      (overrides || [])
+        .filter((o) => o.channel_sku)
+        .forEach((o) => {
+          const list = listingsByProduct.get(o.product_id) || [];
+          list.push(o.channel_sku as string);
+          listingsByProduct.set(o.product_id, list);
+        });
 
-      // One combined push: every active product x every configured
-      // warehouse, each item tagged with that warehouse's own supplier
-      // ID and the product's own SKU unless overridden. Missing
-      // combinations push 0, not omitted, so a warehouse that just sold
-      // out is reported accurately instead of silently left at its last
-      // known (wrong) quantity.
+      // One combined push: every active product's every listing x every
+      // configured warehouse, each item tagged with that warehouse's own
+      // supplier ID. Missing combinations push 0, not omitted, so a
+      // warehouse that just sold out is reported accurately instead of
+      // silently left at its last known (wrong) quantity.
       const items = (products || []).flatMap((p) =>
-        (warehouses || []).map((w) => ({
-          supplierPartNumber: skuOverrideByProduct.get(p.id) || p.sku,
-          quantityOnHand: qtyByProductWarehouse.get(`${p.id}::${w.id}`) || 0,
-          supplierId: w.wayfair_supplier_id as number,
-        }))
+        (listingsByProduct.get(p.id) || [p.sku]).flatMap((sku) =>
+          (warehouses || []).map((w) => ({
+            supplierPartNumber: sku,
+            quantityOnHand: qtyByProductWarehouse.get(`${p.id}::${w.id}`) || 0,
+            supplierId: w.wayfair_supplier_id as number,
+          }))
+        )
       );
 
       const result = await pushWayfairInventory(items, false);

@@ -2,7 +2,7 @@
 
 import Head from 'next/head';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppHeader } from '@/components/AppHeader';
@@ -34,6 +34,14 @@ interface DrilldownOrder {
   status: string;
   total_amount: number;
   created_at: string;
+}
+
+interface DrilldownItem {
+  id: string;
+  order_id: string;
+  quantity_ordered: number;
+  is_cancelled: boolean;
+  product: { sku: string; title: string } | null;
 }
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -72,7 +80,9 @@ export default function Channels() {
 
   const [drilldownLog, setDrilldownLog] = useState<SyncLog | null>(null);
   const [drilldownOrders, setDrilldownOrders] = useState<DrilldownOrder[] | null>(null);
+  const [drilldownItems, setDrilldownItems] = useState<Record<string, DrilldownItem[]>>({});
   const [drilldownLoading, setDrilldownLoading] = useState(false);
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -118,6 +128,7 @@ export default function Channels() {
   const openDrilldown = async (log: SyncLog) => {
     setDrilldownLog(log);
     setDrilldownOrders(null);
+    setExpandedOrderId(null);
 
     if (log.sync_type === 'pull_orders' && log.synced_order_ids?.length) {
       setDrilldownLoading(true);
@@ -126,6 +137,17 @@ export default function Channels() {
         .select('id, order_number, status, total_amount, created_at')
         .in('id', log.synced_order_ids);
       setDrilldownOrders(data || []);
+
+      const { data: items } = await supabase
+        .from('order_items')
+        .select('id, order_id, quantity_ordered, is_cancelled, product:products(sku, title)')
+        .in('order_id', log.synced_order_ids);
+
+      const grouped: Record<string, DrilldownItem[]> = {};
+      ((items as unknown as DrilldownItem[]) || []).forEach((item) => {
+        (grouped[item.order_id] ||= []).push(item);
+      });
+      setDrilldownItems(grouped);
       setDrilldownLoading(false);
     }
   };
@@ -485,12 +507,41 @@ export default function Channels() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {(drilldownOrders || []).map((o) => (
-                        <tr key={o.id}>
-                          <td className="py-1.5 pr-4 font-medium">{o.order_number}</td>
-                          <td className="py-1.5 pr-4">{o.status}</td>
-                          <td className="py-1.5 pr-4">${Number(o.total_amount).toFixed(2)}</td>
-                          <td className="py-1.5">{new Date(o.created_at).toLocaleString()}</td>
-                        </tr>
+                        <Fragment key={o.id}>
+                          <tr
+                            className="cursor-pointer hover:bg-slate-50"
+                            onClick={() => setExpandedOrderId((prev) => (prev === o.id ? null : o.id))}
+                          >
+                            <td className="py-1.5 pr-4 font-medium text-blue-700">
+                              {expandedOrderId === o.id ? '▾ ' : '▸ '}
+                              {o.order_number}
+                            </td>
+                            <td className="py-1.5 pr-4">{o.status}</td>
+                            <td className="py-1.5 pr-4">${Number(o.total_amount).toFixed(2)}</td>
+                            <td className="py-1.5">{new Date(o.created_at).toLocaleString()}</td>
+                          </tr>
+                          {expandedOrderId === o.id && (
+                            <tr>
+                              <td colSpan={4} className="pb-2 pl-4">
+                                {(drilldownItems[o.id] || []).length === 0 ? (
+                                  <p className="text-xs text-slate-400">No matched line items.</p>
+                                ) : (
+                                  <table className="min-w-full text-xs bg-slate-50 rounded">
+                                    <tbody className="divide-y divide-slate-200">
+                                      {(drilldownItems[o.id] || []).map((item) => (
+                                        <tr key={item.id} className={item.is_cancelled ? 'text-slate-400 line-through' : ''}>
+                                          <td className="py-1 pl-2 pr-4 font-medium">{item.product?.sku || '—'}</td>
+                                          <td className="py-1 pr-4">{item.product?.title || '—'}</td>
+                                          <td className="py-1 pr-2">Qty {item.quantity_ordered}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>

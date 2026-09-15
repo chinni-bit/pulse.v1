@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppHeader } from '@/components/AppHeader';
+import { DetailModal } from '@/components/DetailModal';
 import { supabase } from '@/lib/supabase';
 
 interface InventoryStats {
@@ -14,6 +15,14 @@ interface InventoryStats {
   warehouses: number;
   lowStockCount: number;
   outOfStockCount: number;
+}
+
+interface StockRow {
+  id: string;
+  sku: string;
+  title: string;
+  available: number;
+  reorder_threshold: number;
 }
 
 interface SyncStatus {
@@ -34,6 +43,9 @@ export default function Dashboard() {
   const [stats, setStats] = useState<InventoryStats | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lowStockRows, setLowStockRows] = useState<StockRow[]>([]);
+  const [outOfStockRows, setOutOfStockRows] = useState<StockRow[]>([]);
+  const [drilldown, setDrilldown] = useState<'LOW_STOCK' | 'OUT_OF_STOCK' | null>(null);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -46,7 +58,7 @@ export default function Dashboard() {
         // that "Total SKUs" was less useful than "Active SKUs."
         const { data: products } = await supabase
           .from('products')
-          .select('id, reorder_threshold, status')
+          .select('id, sku, title, reorder_threshold, status')
           .eq('tenant_id', tenantId)
           .is('deleted_at', null);
 
@@ -57,10 +69,13 @@ export default function Dashboard() {
           .select('product_id, quantity_available')
           .eq('tenant_id', tenantId);
 
+        // Only active warehouses count toward the tile - deactivated
+        // warehouses (see /warehouses) are excluded.
         const { data: warehouses } = await supabase
           .from('warehouses')
           .select('id')
-          .eq('tenant_id', tenantId);
+          .eq('tenant_id', tenantId)
+          .eq('is_active', true);
 
         const totalUnits = batches?.reduce((sum, b) => sum + (b.quantity_available || 0), 0) || 0;
 
@@ -68,17 +83,34 @@ export default function Dashboard() {
         batches?.forEach((b) => {
           availableByProduct.set(b.product_id, (availableByProduct.get(b.product_id) || 0) + (b.quantity_available || 0));
         });
-        const lowStockCount = activeProducts.filter(
-          (p) => (availableByProduct.get(p.id) || 0) < p.reorder_threshold
-        ).length;
-        const outOfStockCount = activeProducts.filter((p) => (availableByProduct.get(p.id) || 0) <= 0).length;
+        const lowStock = activeProducts
+          .filter((p) => (availableByProduct.get(p.id) || 0) < p.reorder_threshold)
+          .map((p) => ({
+            id: p.id,
+            sku: p.sku,
+            title: p.title,
+            available: availableByProduct.get(p.id) || 0,
+            reorder_threshold: p.reorder_threshold,
+          }));
+        const outOfStock = activeProducts
+          .filter((p) => (availableByProduct.get(p.id) || 0) <= 0)
+          .map((p) => ({
+            id: p.id,
+            sku: p.sku,
+            title: p.title,
+            available: availableByProduct.get(p.id) || 0,
+            reorder_threshold: p.reorder_threshold,
+          }));
+
+        setLowStockRows(lowStock);
+        setOutOfStockRows(outOfStock);
 
         setStats({
           activeSKUs: activeProducts.length,
           totalUnits,
           warehouses: warehouses?.length || 0,
-          lowStockCount,
-          outOfStockCount,
+          lowStockCount: lowStock.length,
+          outOfStockCount: outOfStock.length,
         });
 
         // Sync status per channel, driven by the channels table (the
@@ -158,18 +190,24 @@ export default function Dashboard() {
                   </div>
 
                   {/* Low Stock */}
-                  <div className="bg-white rounded-lg shadow p-6">
+                  <button
+                    onClick={() => setDrilldown('LOW_STOCK')}
+                    className="bg-white rounded-lg shadow p-6 text-left hover:ring-2 hover:ring-orange-300 transition-shadow"
+                  >
                     <div className="text-slate-600 text-sm font-medium">Low Stock</div>
                     <div className="text-4xl font-bold text-orange-600 mt-2">{stats?.lowStockCount || 0}</div>
-                    <div className="text-slate-500 text-xs mt-2">Below reorder threshold</div>
-                  </div>
+                    <div className="text-slate-500 text-xs mt-2">Below reorder threshold - click to view</div>
+                  </button>
 
                   {/* Out of Stock */}
-                  <div className="bg-white rounded-lg shadow p-6">
+                  <button
+                    onClick={() => setDrilldown('OUT_OF_STOCK')}
+                    className="bg-white rounded-lg shadow p-6 text-left hover:ring-2 hover:ring-red-300 transition-shadow"
+                  >
                     <div className="text-slate-600 text-sm font-medium">Out of Stock</div>
                     <div className="text-4xl font-bold text-red-600 mt-2">{stats?.outOfStockCount || 0}</div>
-                    <div className="text-slate-500 text-xs mt-2">Zero units available</div>
-                  </div>
+                    <div className="text-slate-500 text-xs mt-2">Zero units available - click to view</div>
+                  </button>
                 </div>
               </section>
 
@@ -231,6 +269,38 @@ export default function Dashboard() {
             </>
           )}
         </div>
+
+        {drilldown && (
+          <DetailModal
+            title={drilldown === 'LOW_STOCK' ? 'Low Stock SKUs' : 'Out of Stock SKUs'}
+            onClose={() => setDrilldown(null)}
+          >
+            {(drilldown === 'LOW_STOCK' ? lowStockRows : outOfStockRows).length === 0 ? (
+              <p className="text-sm text-slate-500">Nothing here.</p>
+            ) : (
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="py-1 pr-4">SKU</th>
+                    <th className="py-1 pr-4">Title</th>
+                    <th className="py-1 pr-4">Available</th>
+                    <th className="py-1">Reorder Threshold</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(drilldown === 'LOW_STOCK' ? lowStockRows : outOfStockRows).map((row) => (
+                    <tr key={row.id}>
+                      <td className="py-1.5 pr-4 font-medium">{row.sku}</td>
+                      <td className="py-1.5 pr-4">{row.title}</td>
+                      <td className="py-1.5 pr-4">{row.available}</td>
+                      <td className="py-1.5">{row.reorder_threshold}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </DetailModal>
+        )}
       </main>
     </ProtectedRoute>
   );

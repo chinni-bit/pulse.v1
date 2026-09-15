@@ -5,6 +5,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppHeader } from '@/components/AppHeader';
+import { DetailModal, DetailField } from '@/components/DetailModal';
 import { supabase } from '@/lib/supabase';
 
 const MAX_SKU_LENGTH = 40;
@@ -12,8 +13,10 @@ const MAX_TITLE_LENGTH = 200;
 const MAX_BRAND_LENGTH = 100;
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 const NEW_BRAND_VALUE = '__new__';
+const PAGE_SIZE_STORAGE_KEY = 'pulse.products.pageSize';
 
-type SortKey = 'sku' | 'title' | 'brand_name' | 'cost' | 'msrp' | 'status';
+type SortKey = 'sku' | 'title' | 'brand_name' | 'product_type' | 'cost' | 'msrp' | 'status';
+type StatusFilter = 'ACTIVE' | 'ALL' | 'INACTIVE' | 'FUTURE';
 
 interface Product {
   id: string;
@@ -25,6 +28,12 @@ interface Product {
   msrp: number | null;
   status: string;
   reorder_threshold: number;
+  product_type: string | null;
+  finish: string | null;
+  finish_group: string | null;
+  dimensions: string | null;
+  country_of_origin: string | null;
+  customer_exclusivity: string | null;
 }
 
 interface ProductFormData {
@@ -36,6 +45,12 @@ interface ProductFormData {
   msrp: string;
   status: string;
   reorder_threshold: string;
+  product_type: string;
+  finish: string;
+  finish_group: string;
+  dimensions: string;
+  country_of_origin: string;
+  customer_exclusivity: string;
 }
 
 const EMPTY_FORM: ProductFormData = {
@@ -47,6 +62,12 @@ const EMPTY_FORM: ProductFormData = {
   msrp: '',
   status: 'ACTIVE',
   reorder_threshold: '10',
+  product_type: '',
+  finish: '',
+  finish_group: '',
+  dimensions: '',
+  country_of_origin: '',
+  customer_exclusivity: '',
 };
 
 interface Variant {
@@ -72,6 +93,14 @@ const EMPTY_VARIANT_FORM: VariantFormData = {
 interface ChannelListing {
   id: string;
   channel_sku: string;
+  listing_name: string | null;
+}
+
+interface WarehouseInventoryRow {
+  warehouse_id: string;
+  warehouse_name: string;
+  warehouse_code: string;
+  quantity: number;
 }
 
 export default function Products() {
@@ -79,9 +108,10 @@ export default function Products() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [channelNames, setChannelNames] = useState<string[]>([]);
-  const [listingsByProduct, setListingsByProduct] = useState<Record<string, Record<string, ChannelListing>>>({});
+  const [listingsByProduct, setListingsByProduct] = useState<Record<string, Record<string, ChannelListing[]>>>({});
   const [listingLoading, setListingLoading] = useState(false);
-  const [listingDrafts, setListingDrafts] = useState<Record<string, string>>({});
+  const [listingDraftName, setListingDraftName] = useState<Record<string, string>>({});
+  const [listingDraftSku, setListingDraftSku] = useState<Record<string, string>>({});
   const [listingSaving, setListingSaving] = useState<string | null>(null);
   const [listingError, setListingError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -92,6 +122,14 @@ export default function Products() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ACTIVE');
+  const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
+  const [viewingInventory, setViewingInventory] = useState<WarehouseInventoryRow[] | null>(null);
+
+  useEffect(() => {
+    const stored = typeof window !== 'undefined' ? sessionStorage.getItem(PAGE_SIZE_STORAGE_KEY) : null;
+    if (stored) setPageSize(Number(stored));
+  }, []);
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -115,7 +153,9 @@ export default function Products() {
 
     const { data, error } = await supabase
       .from('products')
-      .select('id, sku, title, description, brand_name, cost, msrp, status, reorder_threshold')
+      .select(
+        'id, sku, title, description, brand_name, cost, msrp, status, reorder_threshold, product_type, finish, finish_group, dimensions, country_of_origin, customer_exclusivity'
+      )
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
       .order('title', { ascending: true });
@@ -148,7 +188,12 @@ export default function Products() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, pageSize]);
+  }, [search, pageSize, statusFilter]);
+
+  const changePageSize = (size: number) => {
+    setPageSize(size);
+    if (typeof window !== 'undefined') sessionStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(size));
+  };
 
   const brandOptions = useMemo(() => {
     const names = new Set<string>();
@@ -160,15 +205,20 @@ export default function Products() {
 
   const filteredSortedProducts = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const filtered = term
-      ? products.filter(
-          (p) =>
-            p.sku.toLowerCase().includes(term) ||
-            p.title.toLowerCase().includes(term) ||
-            (p.brand_name || '').toLowerCase().includes(term) ||
-            (p.description || '').toLowerCase().includes(term)
-        )
-      : products;
+    let filtered = statusFilter === 'ALL' ? products : products.filter((p) => p.status === statusFilter);
+
+    if (term) {
+      filtered = filtered.filter(
+        (p) =>
+          p.sku.toLowerCase().includes(term) ||
+          p.title.toLowerCase().includes(term) ||
+          (p.brand_name || '').toLowerCase().includes(term) ||
+          (p.description || '').toLowerCase().includes(term) ||
+          (p.product_type || '').toLowerCase().includes(term) ||
+          (p.finish || '').toLowerCase().includes(term) ||
+          (p.finish_group || '').toLowerCase().includes(term)
+      );
+    }
 
     const sorted = [...filtered].sort((a, b) => {
       let cmp = 0;
@@ -181,7 +231,7 @@ export default function Products() {
     });
 
     return sorted;
-  }, [products, search, sortKey, sortDir]);
+  }, [products, search, statusFilter, sortKey, sortDir]);
 
   const pageCount = Math.max(1, Math.ceil(filteredSortedProducts.length / pageSize));
   const currentPage = Math.min(page, pageCount);
@@ -216,6 +266,12 @@ export default function Products() {
       msrp: product.msrp != null ? String(product.msrp) : '',
       status: product.status,
       reorder_threshold: String(product.reorder_threshold),
+      product_type: product.product_type || '',
+      finish: product.finish || '',
+      finish_group: product.finish_group || '',
+      dimensions: product.dimensions || '',
+      country_of_origin: product.country_of_origin || '',
+      customer_exclusivity: product.customer_exclusivity || '',
     });
     setBrandMode('select');
     setFormError('');
@@ -233,6 +289,12 @@ export default function Products() {
       msrp: product.msrp != null ? String(product.msrp) : '',
       status: product.status,
       reorder_threshold: String(product.reorder_threshold),
+      product_type: product.product_type || '',
+      finish: product.finish || '',
+      finish_group: product.finish_group || '',
+      dimensions: product.dimensions || '',
+      country_of_origin: product.country_of_origin || '',
+      customer_exclusivity: product.customer_exclusivity || '',
     });
     setBrandMode('select');
     setFormError(`Enter a new SKU for this product - everything else was copied from ${product.sku}`);
@@ -292,6 +354,12 @@ export default function Products() {
       msrp,
       status: formData.status,
       reorder_threshold: formData.reorder_threshold ? Number(formData.reorder_threshold) : 10,
+      product_type: formData.product_type.trim() || null,
+      finish: formData.finish.trim() || null,
+      finish_group: formData.finish_group.trim() || null,
+      dimensions: formData.dimensions.trim() || null,
+      country_of_origin: formData.country_of_origin.trim() || null,
+      customer_exclusivity: formData.customer_exclusivity.trim() || null,
     };
 
     const { error } = editingId
@@ -347,17 +415,65 @@ export default function Products() {
 
     const { data, error } = await supabase
       .from('product_mappings')
-      .select('id, channel, channel_sku')
+      .select('id, channel, channel_sku, listing_name')
       .eq('product_id', productId);
 
     if (!error) {
-      const byChannel: Record<string, ChannelListing> = {};
+      const byChannel: Record<string, ChannelListing[]> = {};
       (data || []).forEach((row) => {
-        if (row.channel_sku) byChannel[row.channel] = { id: row.id, channel_sku: row.channel_sku };
+        if (row.channel_sku) {
+          (byChannel[row.channel] ||= []).push({
+            id: row.id,
+            channel_sku: row.channel_sku,
+            listing_name: row.listing_name,
+          });
+        }
       });
       setListingsByProduct((prev) => ({ ...prev, [productId]: byChannel }));
     }
     setListingLoading(false);
+  };
+
+  const fetchInventoryForProduct = async (productId: string) => {
+    const { data: batches } = await supabase
+      .from('inventory_batches')
+      .select('id')
+      .eq('product_id', productId);
+
+    const batchIds = (batches || []).map((b) => b.id);
+    if (batchIds.length === 0) {
+      setViewingInventory([]);
+      return;
+    }
+
+    const { data: locations } = await supabase
+      .from('batch_locations')
+      .select('warehouse_id, quantity, warehouses(name, code)')
+      .in('batch_id', batchIds);
+
+    const byWarehouse = new Map<string, WarehouseInventoryRow>();
+    (locations as unknown as { warehouse_id: string; quantity: number; warehouses: { name: string; code: string } | null }[] || []).forEach(
+      (loc) => {
+        const existing = byWarehouse.get(loc.warehouse_id);
+        if (existing) {
+          existing.quantity += loc.quantity || 0;
+        } else {
+          byWarehouse.set(loc.warehouse_id, {
+            warehouse_id: loc.warehouse_id,
+            warehouse_name: loc.warehouses?.name || loc.warehouse_id,
+            warehouse_code: loc.warehouses?.code || '',
+            quantity: loc.quantity || 0,
+          });
+        }
+      }
+    );
+    setViewingInventory(Array.from(byWarehouse.values()));
+  };
+
+  const openProductDetail = (product: Product) => {
+    setViewingProduct(product);
+    setViewingInventory(null);
+    fetchInventoryForProduct(product.id);
   };
 
   const toggleVariants = (productId: string) => {
@@ -368,7 +484,8 @@ export default function Products() {
     setExpandedProductId(productId);
     setVariantForm(EMPTY_VARIANT_FORM);
     setVariantFormError('');
-    setListingDrafts({});
+    setListingDraftName({});
+    setListingDraftSku({});
     setListingError('');
     if (!variantsByProduct[productId]) {
       fetchVariants(productId);
@@ -378,17 +495,15 @@ export default function Products() {
     }
   };
 
-  const removeListing = async (productId: string, channel: string) => {
-    const existing = listingsByProduct[productId]?.[channel];
-    if (!existing) return;
-    if (!window.confirm(`Remove the ${channel} SKU override? This channel will go back to using the product's own SKU.`)) {
+  const removeListing = async (productId: string, channel: string, listingId: string) => {
+    if (!window.confirm(`Remove this ${channel} listing?`)) {
       return;
     }
 
     setListingSaving(channel);
     setListingError('');
 
-    const { error } = await supabase.from('product_mappings').delete().eq('id', existing.id);
+    const { error } = await supabase.from('product_mappings').delete().eq('id', listingId);
 
     setListingSaving(null);
     if (error) {
@@ -399,42 +514,36 @@ export default function Products() {
     fetchListings(productId);
   };
 
-  const saveListing = async (productId: string, channel: string) => {
+  // Multiple listings per channel are allowed - a product can be sold
+  // under several different names/SKUs on the same channel (owner
+  // feedback 2026-09-15). listing_name is just a label to tell them
+  // apart; leaving it blank is fine if there's only one.
+  const addListing = async (productId: string, channel: string) => {
     if (!tenantId) return;
 
-    const draftValue = (listingDrafts[channel] ?? '').trim();
-    if (!draftValue) return;
-    const existing = listingsByProduct[productId]?.[channel];
+    const draftSku = (listingDraftSku[channel] ?? '').trim();
+    if (!draftSku) return;
+    const draftName = (listingDraftName[channel] ?? '').trim();
 
     setListingSaving(channel);
     setListingError('');
 
-    if (existing) {
-      const { error } = await supabase
-        .from('product_mappings')
-        .update({ channel_sku: draftValue })
-        .eq('id', existing.id);
-      if (error) {
-        setListingError(error.message);
-        setListingSaving(null);
-        return;
-      }
-    } else {
-      const { error } = await supabase.from('product_mappings').insert({
-        tenant_id: tenantId,
-        product_id: productId,
-        channel,
-        channel_sku: draftValue,
-      });
-      if (error) {
-        setListingError(error.message);
-        setListingSaving(null);
-        return;
-      }
-    }
+    const { error } = await supabase.from('product_mappings').insert({
+      tenant_id: tenantId,
+      product_id: productId,
+      channel,
+      channel_sku: draftSku,
+      listing_name: draftName || null,
+    });
 
     setListingSaving(null);
-    setListingDrafts((prev) => ({ ...prev, [channel]: '' }));
+    if (error) {
+      setListingError(error.message);
+      return;
+    }
+
+    setListingDraftSku((prev) => ({ ...prev, [channel]: '' }));
+    setListingDraftName((prev) => ({ ...prev, [channel]: '' }));
     fetchListings(productId);
   };
 
@@ -509,23 +618,35 @@ export default function Products() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search SKU, title, brand, description..."
+              placeholder="Search SKU, title, brand, type, finish, description..."
               className="w-full sm:w-80 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             />
-            <div className="flex items-center gap-2 text-sm text-slate-600">
-              <label htmlFor="pageSize">Rows per page</label>
+            <div className="flex flex-wrap items-center gap-3">
               <select
-                id="pageSize"
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               >
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
+                <option value="ACTIVE">Active only</option>
+                <option value="ALL">All statuses</option>
+                <option value="INACTIVE">Inactive only</option>
+                <option value="FUTURE">Future only</option>
               </select>
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                <label htmlFor="pageSize">Rows per page</label>
+                <select
+                  id="pageSize"
+                  value={pageSize}
+                  onChange={(e) => changePageSize(Number(e.target.value))}
+                  className="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -676,6 +797,77 @@ export default function Products() {
                   <p className="text-xs text-slate-500 mt-1">Flagged as low stock below this quantity</p>
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Product Type</label>
+                  <input
+                    type="text"
+                    value={formData.product_type}
+                    onChange={(e) => setFormData({ ...formData, product_type: e.target.value })}
+                    disabled={saving}
+                    placeholder="e.g. Crib, Dresser, Desk"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Finish</label>
+                  <input
+                    type="text"
+                    value={formData.finish}
+                    onChange={(e) => setFormData({ ...formData, finish: e.target.value })}
+                    disabled={saving}
+                    placeholder="e.g. Weathered White"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Finish Group</label>
+                  <input
+                    type="text"
+                    value={formData.finish_group}
+                    onChange={(e) => setFormData({ ...formData, finish_group: e.target.value })}
+                    disabled={saving}
+                    placeholder="e.g. Whites, Espressos"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Dimensions</label>
+                  <input
+                    type="text"
+                    value={formData.dimensions}
+                    onChange={(e) => setFormData({ ...formData, dimensions: e.target.value })}
+                    disabled={saving}
+                    placeholder={'e.g. 54"W x 20"D x 34"H'}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Country of Origin</label>
+                  <input
+                    type="text"
+                    value={formData.country_of_origin}
+                    onChange={(e) => setFormData({ ...formData, country_of_origin: e.target.value })}
+                    disabled={saving}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Customer Exclusivity</label>
+                  <input
+                    type="text"
+                    value={formData.customer_exclusivity}
+                    onChange={(e) => setFormData({ ...formData, customer_exclusivity: e.target.value })}
+                    disabled={saving}
+                    placeholder="leave blank if not exclusive to one customer"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                </div>
+
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
                   <textarea
@@ -724,11 +916,12 @@ export default function Products() {
                   <tr>
                     {(
                       [
-                        ['sku', 'SKU', 'w-40'],
-                        ['title', 'Title', 'w-56'],
-                        ['brand_name', 'Brand', 'w-32'],
-                        ['cost', 'Cost', 'w-24'],
-                        ['msrp', 'MSRP', 'w-24'],
+                        ['sku', 'SKU', 'w-36'],
+                        ['title', 'Title', 'w-48'],
+                        ['brand_name', 'Brand', 'w-28'],
+                        ['product_type', 'Type', 'w-28'],
+                        ['cost', 'Cost', 'w-20'],
+                        ['msrp', 'MSRP', 'w-20'],
                         ['status', 'Status', 'w-24'],
                       ] as [SortKey, string, string][]
                     ).map(([key, label, width]) => (
@@ -748,7 +941,11 @@ export default function Products() {
                   {pagedProducts.map((product) => (
                     <Fragment key={product.id}>
                       <tr className="hover:bg-slate-50">
-                        <td className="px-6 py-4 text-sm font-medium text-slate-900 truncate" title={product.sku}>
+                        <td
+                          className="px-6 py-4 text-sm font-medium text-blue-700 hover:underline truncate cursor-pointer"
+                          title={product.sku}
+                          onClick={() => openProductDetail(product)}
+                        >
                           {product.sku}
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600 truncate" title={product.title}>
@@ -756,6 +953,9 @@ export default function Products() {
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600 truncate" title={product.brand_name || ''}>
                           {product.brand_name || '—'}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600 truncate" title={product.product_type || ''}>
+                          {product.product_type || '—'}
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600">
                           {product.cost != null ? `$${product.cost.toFixed(2)}` : '—'}
@@ -781,7 +981,7 @@ export default function Products() {
                             onClick={() => toggleVariants(product.id)}
                             className="text-slate-600 hover:underline font-medium"
                           >
-                            {expandedProductId === product.id ? 'Hide' : 'Channels'}
+                            {expandedProductId === product.id ? 'Hide' : 'Listings'}
                           </button>
                           <button
                             onClick={() => openEditForm(product)}
@@ -805,7 +1005,7 @@ export default function Products() {
                       </tr>
                       {expandedProductId === product.id && (
                         <tr>
-                          <td colSpan={7} className="px-6 py-4 bg-slate-50 border-t border-b border-slate-200">
+                          <td colSpan={8} className="px-6 py-4 bg-slate-50 border-t border-b border-slate-200">
                             <h3 className="text-sm font-semibold text-slate-900 mb-3">
                               Variants / bundle components for {product.title}
                             </h3>
@@ -920,8 +1120,9 @@ export default function Products() {
                             </h3>
                             <p className="text-xs text-slate-500 mb-3">
                               By default every channel uses this product&apos;s own SKU (
-                              <strong>{product.sku}</strong>). Only set an override below if a
-                              channel actually lists this product under a different code.
+                              <strong>{product.sku}</strong>). Add a listing below if a channel lists this
+                              product under a different code - add more than one if it&apos;s sold under
+                              several names/SKUs on the same channel.
                             </p>
 
                             {listingError && (
@@ -935,64 +1136,86 @@ export default function Products() {
                             ) : channelNames.length === 0 ? (
                               <p className="text-sm text-slate-500">No channels configured yet.</p>
                             ) : (
-                              <table className="min-w-full bg-white rounded border border-slate-200">
-                                <thead className="bg-slate-100">
-                                  <tr>
-                                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-700">Channel</th>
-                                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-700">SKU Used</th>
-                                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-700">Override</th>
-                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-700">Actions</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                  {channelNames.map((channel) => {
-                                    const listing = listingsByProduct[product.id]?.[channel];
-                                    const draft = listingDrafts[channel] ?? '';
-                                    return (
-                                      <tr key={channel}>
-                                        <td className="px-4 py-2 text-sm text-slate-700">{channel}</td>
-                                        <td className="px-4 py-2 text-sm text-slate-700">
-                                          {listing ? (
-                                            <span className="font-medium">{listing.channel_sku}</span>
-                                          ) : (
-                                            <span className="text-slate-400">{product.sku} (product SKU)</span>
-                                          )}
-                                        </td>
-                                        <td className="px-4 py-2 text-sm">
+                              <div className="space-y-4">
+                                {channelNames.map((channel) => {
+                                  const listings = listingsByProduct[product.id]?.[channel] || [];
+                                  const draftSku = listingDraftSku[channel] ?? '';
+                                  const draftName = listingDraftName[channel] ?? '';
+                                  return (
+                                    <div key={channel} className="bg-white rounded border border-slate-200 p-3">
+                                      <p className="text-sm font-semibold text-slate-800 mb-2">{channel}</p>
+                                      {listings.length === 0 ? (
+                                        <p className="text-xs text-slate-400 mb-2">
+                                          Using product SKU ({product.sku}) - no listings added.
+                                        </p>
+                                      ) : (
+                                        <table className="min-w-full mb-2">
+                                          <tbody className="divide-y divide-slate-100">
+                                            {listings.map((listing) => (
+                                              <tr key={listing.id}>
+                                                <td className="py-1 pr-3 text-sm text-slate-700">
+                                                  {listing.listing_name || <span className="text-slate-400">(unnamed)</span>}
+                                                </td>
+                                                <td className="py-1 pr-3 text-sm font-medium text-slate-900">
+                                                  {listing.channel_sku}
+                                                </td>
+                                                <td className="py-1 text-right">
+                                                  <button
+                                                    onClick={() => removeListing(product.id, channel, listing.id)}
+                                                    disabled={listingSaving === channel}
+                                                    className="text-red-600 hover:underline font-medium text-xs"
+                                                  >
+                                                    Remove
+                                                  </button>
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                      <div className="flex flex-wrap items-end gap-2">
+                                        <div>
+                                          <label className="block text-xs font-medium text-slate-700 mb-1">
+                                            Listing name (optional)
+                                          </label>
                                           <input
                                             type="text"
-                                            value={draft}
+                                            value={draftName}
                                             onChange={(e) =>
-                                              setListingDrafts((prev) => ({ ...prev, [channel]: e.target.value }))
+                                              setListingDraftName((prev) => ({ ...prev, [channel]: e.target.value }))
                                             }
-                                            placeholder={listing ? listing.channel_sku : 'no override'}
+                                            placeholder="e.g. Farmhouse Dresser"
+                                            disabled={listingSaving === channel}
+                                            className="w-44 px-2 py-1 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-xs font-medium text-slate-700 mb-1">
+                                            Channel SKU
+                                          </label>
+                                          <input
+                                            type="text"
+                                            value={draftSku}
+                                            onChange={(e) =>
+                                              setListingDraftSku((prev) => ({ ...prev, [channel]: e.target.value }))
+                                            }
+                                            placeholder="required"
                                             disabled={listingSaving === channel}
                                             className="w-40 px-2 py-1 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
                                           />
-                                        </td>
-                                        <td className="px-4 py-2 text-sm text-right space-x-3">
-                                          <button
-                                            onClick={() => saveListing(product.id, channel)}
-                                            disabled={listingSaving === channel || !draft.trim()}
-                                            className="text-blue-600 hover:underline font-medium disabled:text-slate-300"
-                                          >
-                                            {listingSaving === channel ? 'Saving...' : 'Set Override'}
-                                          </button>
-                                          {listing && (
-                                            <button
-                                              onClick={() => removeListing(product.id, channel)}
-                                              disabled={listingSaving === channel}
-                                              className="text-red-600 hover:underline font-medium"
-                                            >
-                                              Remove
-                                            </button>
-                                          )}
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
+                                        </div>
+                                        <button
+                                          onClick={() => addListing(product.id, channel)}
+                                          disabled={listingSaving === channel || !draftSku.trim()}
+                                          className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:bg-slate-400"
+                                        >
+                                          {listingSaving === channel ? 'Saving...' : '+ Add Listing'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -1028,6 +1251,59 @@ export default function Products() {
             </div>
           )}
         </div>
+
+        {viewingProduct && (
+          <DetailModal
+            title={`${viewingProduct.title} (${viewingProduct.sku})`}
+            onClose={() => setViewingProduct(null)}
+            onEdit={() => {
+              setViewingProduct(null);
+              openEditForm(viewingProduct);
+            }}
+          >
+            <DetailField label="Brand" value={viewingProduct.brand_name} />
+            <DetailField label="Product Type" value={viewingProduct.product_type} />
+            <DetailField label="Finish" value={viewingProduct.finish} />
+            <DetailField label="Finish Group" value={viewingProduct.finish_group} />
+            <DetailField label="Status" value={viewingProduct.status} />
+            <DetailField
+              label="Cost / MSRP"
+              value={`${viewingProduct.cost != null ? `$${viewingProduct.cost.toFixed(2)}` : '—'} / ${
+                viewingProduct.msrp != null ? `$${viewingProduct.msrp.toFixed(2)}` : '—'
+              }`}
+            />
+            <DetailField label="Dimensions" value={viewingProduct.dimensions} />
+            <DetailField label="Country of Origin" value={viewingProduct.country_of_origin} />
+            <DetailField label="Customer Exclusivity" value={viewingProduct.customer_exclusivity} />
+            <DetailField label="Description" value={viewingProduct.description} />
+
+            <div>
+              <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">
+                Inventory by Warehouse
+              </div>
+              {viewingInventory === null ? (
+                <p className="text-sm text-slate-500">Loading...</p>
+              ) : viewingInventory.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No per-warehouse breakdown recorded for this product yet.
+                </p>
+              ) : (
+                <table className="min-w-full text-sm">
+                  <tbody className="divide-y divide-slate-100">
+                    {viewingInventory.map((row) => (
+                      <tr key={row.warehouse_id}>
+                        <td className="py-1 pr-4 font-medium">
+                          {row.warehouse_name} ({row.warehouse_code})
+                        </td>
+                        <td className="py-1">{row.quantity} units</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </DetailModal>
+        )}
       </main>
     </ProtectedRoute>
   );
