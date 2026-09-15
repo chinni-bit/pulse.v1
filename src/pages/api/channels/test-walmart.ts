@@ -54,7 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   await callerClient.from('sync_logs').insert({
     tenant_id: callerProfile.tenant_id,
-    channel: 'WALMART',
+    channel: 'WM3P',
     sync_type: 'connection_test',
     status,
     error_message: errorMessage,

@@ -1,12 +1,19 @@
 'use client';
 
 import Head from 'next/head';
-import Link from 'next/link';
-import { Fragment, useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { AppHeader } from '@/components/AppHeader';
 import { supabase } from '@/lib/supabase';
+
+const MAX_SKU_LENGTH = 40;
+const MAX_TITLE_LENGTH = 200;
+const MAX_BRAND_LENGTH = 100;
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+const NEW_BRAND_VALUE = '__new__';
+
+type SortKey = 'sku' | 'title' | 'brand_name' | 'cost' | 'msrp' | 'status';
 
 interface Product {
   id: string;
@@ -68,8 +75,7 @@ interface ChannelListing {
 }
 
 export default function Products() {
-  const router = useRouter();
-  const { user, tenantId, logout } = useAuthStore();
+  const { tenantId } = useAuthStore();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [channelNames, setChannelNames] = useState<string[]>([]);
@@ -81,9 +87,16 @@ export default function Products() {
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState('');
 
+  const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('title');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useState(1);
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<ProductFormData>(EMPTY_FORM);
+  const [brandMode, setBrandMode] = useState<'select' | 'new'>('select');
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -133,18 +146,61 @@ export default function Products() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-      router.push('/login');
-    } catch (err) {
-      console.error('Logout failed:', err);
+  useEffect(() => {
+    setPage(1);
+  }, [search, pageSize]);
+
+  const brandOptions = useMemo(() => {
+    const names = new Set<string>();
+    products.forEach((p) => {
+      if (p.brand_name) names.add(p.brand_name);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [products]);
+
+  const filteredSortedProducts = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const filtered = term
+      ? products.filter(
+          (p) =>
+            p.sku.toLowerCase().includes(term) ||
+            p.title.toLowerCase().includes(term) ||
+            (p.brand_name || '').toLowerCase().includes(term) ||
+            (p.description || '').toLowerCase().includes(term)
+        )
+      : products;
+
+    const sorted = [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'cost' || sortKey === 'msrp') {
+        cmp = (a[sortKey] ?? -Infinity) - (b[sortKey] ?? -Infinity);
+      } else {
+        cmp = String(a[sortKey] ?? '').localeCompare(String(b[sortKey] ?? ''));
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    return sorted;
+  }, [products, search, sortKey, sortDir]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredSortedProducts.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pagedProducts = filteredSortedProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
     }
+    setPage(1);
   };
 
   const openAddForm = () => {
     setEditingId(null);
     setFormData(EMPTY_FORM);
+    setBrandMode('select');
     setFormError('');
     setShowForm(true);
   };
@@ -161,7 +217,25 @@ export default function Products() {
       status: product.status,
       reorder_threshold: String(product.reorder_threshold),
     });
+    setBrandMode('select');
     setFormError('');
+    setShowForm(true);
+  };
+
+  const openDuplicateForm = (product: Product) => {
+    setEditingId(null);
+    setFormData({
+      sku: '',
+      title: `${product.title} (copy)`,
+      description: product.description || '',
+      brand_name: product.brand_name || '',
+      cost: product.cost != null ? String(product.cost) : '',
+      msrp: product.msrp != null ? String(product.msrp) : '',
+      status: product.status,
+      reorder_threshold: String(product.reorder_threshold),
+    });
+    setBrandMode('select');
+    setFormError(`Enter a new SKU for this product - everything else was copied from ${product.sku}`);
     setShowForm(true);
   };
 
@@ -175,8 +249,34 @@ export default function Products() {
     e.preventDefault();
     if (!tenantId) return;
 
-    if (!formData.sku.trim() || !formData.title.trim()) {
+    const sku = formData.sku.trim();
+    const title = formData.title.trim();
+    const brand = formData.brand_name.trim();
+
+    if (!sku || !title) {
       setFormError('SKU and Title are required');
+      return;
+    }
+    if (sku.length > MAX_SKU_LENGTH) {
+      setFormError(`SKU can't be longer than ${MAX_SKU_LENGTH} characters`);
+      return;
+    }
+    if (title.length > MAX_TITLE_LENGTH) {
+      setFormError(`Title can't be longer than ${MAX_TITLE_LENGTH} characters`);
+      return;
+    }
+    if (brand.length > MAX_BRAND_LENGTH) {
+      setFormError(`Brand can't be longer than ${MAX_BRAND_LENGTH} characters`);
+      return;
+    }
+    const cost = formData.cost ? Number(formData.cost) : null;
+    const msrp = formData.msrp ? Number(formData.msrp) : null;
+    if (cost != null && cost < 0) {
+      setFormError('Cost cannot be negative');
+      return;
+    }
+    if (msrp != null && msrp < 0) {
+      setFormError('MSRP cannot be negative');
       return;
     }
 
@@ -184,12 +284,12 @@ export default function Products() {
     setFormError('');
 
     const payload = {
-      sku: formData.sku.trim(),
-      title: formData.title.trim(),
+      sku,
+      title,
       description: formData.description.trim() || null,
-      brand_name: formData.brand_name.trim() || null,
-      cost: formData.cost ? Number(formData.cost) : null,
-      msrp: formData.msrp ? Number(formData.msrp) : null,
+      brand_name: brand || null,
+      cost,
+      msrp,
       status: formData.status,
       reorder_threshold: formData.reorder_threshold ? Number(formData.reorder_threshold) : 10,
     };
@@ -389,38 +489,44 @@ export default function Products() {
       </Head>
 
       <main className="min-h-screen bg-slate-50">
-        <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <div>
-              <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
-                ← Dashboard
-              </Link>
-              <h1 className="text-2xl font-bold text-slate-900 mt-1">Products</h1>
-            </div>
-            <div className="flex items-center gap-4">
-              <Link href="/warehouses" className="text-blue-600 hover:underline font-medium">
-                Warehouses
-              </Link>
-              <span className="text-slate-600">{user?.email}</span>
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 text-slate-600 hover:text-slate-900 font-medium"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-        </header>
+        <AppHeader title="Products" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex justify-between items-center mb-4">
-            <p className="text-slate-600 text-sm">{products.length} product{products.length === 1 ? '' : 's'}</p>
+          <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+            <p className="text-slate-600 text-sm">
+              {filteredSortedProducts.length} of {products.length} product{products.length === 1 ? '' : 's'}
+            </p>
             <button
               onClick={openAddForm}
               className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
             >
               + Add Product
             </button>
+          </div>
+
+          <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search SKU, title, brand, description..."
+              className="w-full sm:w-80 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            />
+            <div className="flex items-center gap-2 text-sm text-slate-600">
+              <label htmlFor="pageSize">Rows per page</label>
+              <select
+                id="pageSize"
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {listError && (
@@ -449,6 +555,7 @@ export default function Products() {
                     value={formData.sku}
                     onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
                     disabled={saving}
+                    maxLength={MAX_SKU_LENGTH}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                   />
                 </div>
@@ -460,19 +567,60 @@ export default function Products() {
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     disabled={saving}
+                    maxLength={MAX_TITLE_LENGTH}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                   />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Brand</label>
-                  <input
-                    type="text"
-                    value={formData.brand_name}
-                    onChange={(e) => setFormData({ ...formData, brand_name: e.target.value })}
-                    disabled={saving}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
-                  />
+                  {brandMode === 'select' ? (
+                    <select
+                      value={brandOptions.includes(formData.brand_name) ? formData.brand_name : ''}
+                      onChange={(e) => {
+                        if (e.target.value === NEW_BRAND_VALUE) {
+                          setBrandMode('new');
+                          setFormData({ ...formData, brand_name: '' });
+                        } else {
+                          setFormData({ ...formData, brand_name: e.target.value });
+                        }
+                      }}
+                      disabled={saving}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                    >
+                      <option value="">Select a brand...</option>
+                      {brandOptions.map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                      <option value={NEW_BRAND_VALUE}>+ Add new brand...</option>
+                    </select>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={formData.brand_name}
+                        onChange={(e) => setFormData({ ...formData, brand_name: e.target.value })}
+                        disabled={saving}
+                        maxLength={MAX_BRAND_LENGTH}
+                        placeholder="New brand name"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBrandMode('select');
+                          setFormData({ ...formData, brand_name: '' });
+                        }}
+                        disabled={saving}
+                        className="px-3 text-sm text-slate-600 hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Use list
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -485,6 +633,7 @@ export default function Products() {
                   >
                     <option value="ACTIVE">Active</option>
                     <option value="INACTIVE">Inactive</option>
+                    <option value="FUTURE">Future</option>
                   </select>
                 </div>
 
@@ -493,6 +642,7 @@ export default function Products() {
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
                     value={formData.cost}
                     onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
                     disabled={saving}
@@ -505,6 +655,7 @@ export default function Products() {
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
                     value={formData.msrp}
                     onChange={(e) => setFormData({ ...formData, msrp: e.target.value })}
                     disabled={saving}
@@ -565,26 +716,47 @@ export default function Products() {
               </div>
             ) : products.length === 0 ? (
               <div className="text-center py-12 text-slate-500">No products yet. Add your first one above.</div>
+            ) : filteredSortedProducts.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">No products match &quot;{search}&quot;.</div>
             ) : (
-              <table className="min-w-full">
+              <table className="min-w-full table-fixed">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">SKU</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Title</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Brand</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Cost</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">MSRP</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Status</th>
-                    <th className="px-6 py-3 text-right text-sm font-semibold text-slate-900">Actions</th>
+                    {(
+                      [
+                        ['sku', 'SKU', 'w-40'],
+                        ['title', 'Title', 'w-56'],
+                        ['brand_name', 'Brand', 'w-32'],
+                        ['cost', 'Cost', 'w-24'],
+                        ['msrp', 'MSRP', 'w-24'],
+                        ['status', 'Status', 'w-24'],
+                      ] as [SortKey, string, string][]
+                    ).map(([key, label, width]) => (
+                      <th
+                        key={key}
+                        className={`px-6 py-3 text-left text-sm font-semibold text-slate-900 ${width} cursor-pointer select-none hover:text-blue-700`}
+                        onClick={() => toggleSort(key)}
+                      >
+                        {label}
+                        {sortKey === key && (sortDir === 'asc' ? ' ▲' : ' ▼')}
+                      </th>
+                    ))}
+                    <th className="px-6 py-3 text-right text-sm font-semibold text-slate-900 w-56">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {products.map((product) => (
+                  {pagedProducts.map((product) => (
                     <Fragment key={product.id}>
                       <tr className="hover:bg-slate-50">
-                        <td className="px-6 py-4 text-sm font-medium text-slate-900">{product.sku}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{product.title}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{product.brand_name || '—'}</td>
+                        <td className="px-6 py-4 text-sm font-medium text-slate-900 truncate" title={product.sku}>
+                          {product.sku}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600 truncate" title={product.title}>
+                          {product.title}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600 truncate" title={product.brand_name || ''}>
+                          {product.brand_name || '—'}
+                        </td>
                         <td className="px-6 py-4 text-sm text-slate-600">
                           {product.cost != null ? `$${product.cost.toFixed(2)}` : '—'}
                         </td>
@@ -596,24 +768,32 @@ export default function Products() {
                             className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                               product.status === 'ACTIVE'
                                 ? 'bg-green-100 text-green-800'
-                                : 'bg-slate-100 text-slate-600'
+                                : product.status === 'FUTURE'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-slate-100 text-slate-600'
                             }`}
                           >
                             {product.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-right space-x-3">
+                        <td className="px-6 py-4 text-sm text-right space-x-2 whitespace-nowrap">
                           <button
                             onClick={() => toggleVariants(product.id)}
                             className="text-slate-600 hover:underline font-medium"
                           >
-                            {expandedProductId === product.id ? 'Hide Details' : 'Channels / Variants'}
+                            {expandedProductId === product.id ? 'Hide' : 'Channels'}
                           </button>
                           <button
                             onClick={() => openEditForm(product)}
                             className="text-blue-600 hover:underline font-medium"
                           >
                             Edit
+                          </button>
+                          <button
+                            onClick={() => openDuplicateForm(product)}
+                            className="text-slate-600 hover:underline font-medium"
+                          >
+                            Duplicate
                           </button>
                           <button
                             onClick={() => handleDelete(product)}
@@ -823,6 +1003,30 @@ export default function Products() {
               </table>
             )}
           </div>
+
+          {filteredSortedProducts.length > 0 && (
+            <div className="flex justify-between items-center mt-4 text-sm text-slate-600">
+              <span>
+                Page {currentPage} of {pageCount}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:opacity-40 hover:bg-slate-100"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                  disabled={currentPage >= pageCount}
+                  className="px-3 py-1.5 border border-slate-300 rounded-lg disabled:opacity-40 hover:bg-slate-100"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </ProtectedRoute>

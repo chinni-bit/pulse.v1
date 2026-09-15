@@ -61,13 +61,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (callerProfileError || !callerProfile) {
     return res.status(403).json({ error: 'Could not verify caller permissions' });
   }
-  if (callerProfile.role !== 'admin') {
+  if (callerProfile.role !== 'admin' && callerProfile.role !== 'super_admin') {
     return res.status(403).json({ error: 'Only admins can create users' });
   }
+
+  const ALLOWED_ROLES = ['super_admin', 'admin', 'user'];
+  const requestedRole = ALLOWED_ROLES.includes(role || '') ? (role as string) : 'user';
+  // Only a super_admin may create another super_admin, or create a user
+  // in a tenant other than their own.
+  if (requestedRole === 'super_admin' && callerProfile.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Only a super admin can grant the super admin role' });
+  }
+
+  const { tenant_id: requestedTenantId } = req.body as { tenant_id?: string };
+  const targetTenantId =
+    callerProfile.role === 'super_admin' && requestedTenantId ? requestedTenantId : callerProfile.tenant_id;
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+
+  if (callerProfile.role === 'super_admin' && requestedTenantId) {
+    const { data: tenant } = await admin.from('tenants').select('id').eq('id', requestedTenantId).maybeSingle();
+    if (!tenant) {
+      return res.status(400).json({ error: 'Unknown tenant_id' });
+    }
+  }
 
   const { data: created, error: createError } = await admin.auth.admin.createUser({
     email,
@@ -81,10 +100,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { error: profileError } = await admin.from('users').insert({
     id: created.user.id,
-    tenant_id: callerProfile.tenant_id,
+    tenant_id: targetTenantId,
     email,
     full_name,
-    role: role === 'admin' ? 'admin' : 'user',
+    role: requestedRole,
   });
 
   if (profileError) {

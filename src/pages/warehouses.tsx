@@ -1,11 +1,10 @@
 'use client';
 
 import Head from 'next/head';
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
 import { useAuthStore } from '@/store/authStore';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { AppHeader } from '@/components/AppHeader';
 import { supabase } from '@/lib/supabase';
 
 interface Warehouse {
@@ -13,6 +12,10 @@ interface Warehouse {
   code: string;
   name: string;
   location: string | null;
+  address: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
   wayfair_supplier_id: number | null;
 }
 
@@ -20,14 +23,26 @@ interface WarehouseFormData {
   code: string;
   name: string;
   location: string;
+  address: string;
+  contact_name: string;
+  contact_phone: string;
+  contact_email: string;
   wayfair_supplier_id: string;
 }
 
-const EMPTY_FORM: WarehouseFormData = { code: '', name: '', location: '', wayfair_supplier_id: '' };
+const EMPTY_FORM: WarehouseFormData = {
+  code: '',
+  name: '',
+  location: '',
+  address: '',
+  contact_name: '',
+  contact_phone: '',
+  contact_email: '',
+  wayfair_supplier_id: '',
+};
 
 export default function Warehouses() {
-  const router = useRouter();
-  const { user, tenantId, logout } = useAuthStore();
+  const { tenantId } = useAuthStore();
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +62,7 @@ export default function Warehouses() {
 
     const { data, error } = await supabase
       .from('warehouses')
-      .select('id, code, name, location, wayfair_supplier_id')
+      .select('id, code, name, location, address, contact_name, contact_phone, contact_email, wayfair_supplier_id')
       .eq('tenant_id', tenantId)
       .order('name', { ascending: true });
 
@@ -64,15 +79,6 @@ export default function Warehouses() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-      router.push('/login');
-    } catch (err) {
-      console.error('Logout failed:', err);
-    }
-  };
-
   const openAddForm = () => {
     setEditingId(null);
     setFormData(EMPTY_FORM);
@@ -86,6 +92,10 @@ export default function Warehouses() {
       code: warehouse.code,
       name: warehouse.name,
       location: warehouse.location || '',
+      address: warehouse.address || '',
+      contact_name: warehouse.contact_name || '',
+      contact_phone: warehouse.contact_phone || '',
+      contact_email: warehouse.contact_email || '',
       wayfair_supplier_id: warehouse.wayfair_supplier_id != null ? String(warehouse.wayfair_supplier_id) : '',
     });
     setFormError('');
@@ -114,6 +124,10 @@ export default function Warehouses() {
       code: formData.code.trim(),
       name: formData.name.trim(),
       location: formData.location.trim() || null,
+      address: formData.address.trim() || null,
+      contact_name: formData.contact_name.trim() || null,
+      contact_phone: formData.contact_phone.trim() || null,
+      contact_email: formData.contact_email.trim() || null,
       wayfair_supplier_id: formData.wayfair_supplier_id.trim() ? Number(formData.wayfair_supplier_id) : null,
     };
 
@@ -158,28 +172,7 @@ export default function Warehouses() {
       </Head>
 
       <main className="min-h-screen bg-slate-50">
-        <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <div>
-              <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
-                ← Dashboard
-              </Link>
-              <h1 className="text-2xl font-bold text-slate-900 mt-1">Warehouses</h1>
-            </div>
-            <div className="flex items-center gap-4">
-              <Link href="/products" className="text-blue-600 hover:underline font-medium">
-                Products
-              </Link>
-              <span className="text-slate-600">{user?.email}</span>
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 text-slate-600 hover:text-slate-900 font-medium"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-        </header>
+        <AppHeader title="Warehouses" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex justify-between items-center mb-4">
@@ -263,6 +256,51 @@ export default function Warehouses() {
                   </p>
                 </div>
 
+                <div className="md:col-span-3">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
+                  <input
+                    type="text"
+                    value={formData.address}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    disabled={saving}
+                    placeholder="Street, city, state, ZIP"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Contact Name</label>
+                  <input
+                    type="text"
+                    value={formData.contact_name}
+                    onChange={(e) => setFormData({ ...formData, contact_name: e.target.value })}
+                    disabled={saving}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Contact Phone</label>
+                  <input
+                    type="tel"
+                    value={formData.contact_phone}
+                    onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
+                    disabled={saving}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Contact Email</label>
+                  <input
+                    type="email"
+                    value={formData.contact_email}
+                    onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
+                    disabled={saving}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                </div>
+
                 <div className="md:col-span-3 flex gap-3">
                   <button
                     type="submit"
@@ -293,22 +331,31 @@ export default function Warehouses() {
             ) : warehouses.length === 0 ? (
               <div className="text-center py-12 text-slate-500">No warehouses yet. Add your first one above.</div>
             ) : (
-              <table className="min-w-full">
+              <table className="min-w-full table-fixed">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Code</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Name</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Location</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Wayfair Supplier ID</th>
-                    <th className="px-6 py-3 text-right text-sm font-semibold text-slate-900">Actions</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-28">Code</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-40">Name</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-40">Location</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-40">Contact</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-32">Wayfair Supplier ID</th>
+                    <th className="px-6 py-3 text-right text-sm font-semibold text-slate-900 w-32">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {warehouses.map((warehouse) => (
                     <tr key={warehouse.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 text-sm font-medium text-slate-900">{warehouse.code}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{warehouse.name}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{warehouse.location || '—'}</td>
+                      <td className="px-6 py-4 text-sm font-medium text-slate-900 truncate">{warehouse.code}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 truncate">{warehouse.name}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 truncate" title={warehouse.address || ''}>
+                        {warehouse.location || '—'}
+                      </td>
+                      <td
+                        className="px-6 py-4 text-sm text-slate-600 truncate"
+                        title={[warehouse.contact_phone, warehouse.contact_email].filter(Boolean).join(' / ')}
+                      >
+                        {warehouse.contact_name || '—'}
+                      </td>
                       <td className="px-6 py-4 text-sm text-slate-600">{warehouse.wayfair_supplier_id ?? '—'}</td>
                       <td className="px-6 py-4 text-sm text-right space-x-3">
                         <button

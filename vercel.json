@@ -1,5 +1,11 @@
 {
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
-  "installCommand": "npm ci"
+  "installCommand": "npm ci",
+  "crons": [
+    {
+      "path": "/api/cron/sync-channels",
+      "schedule": "0 13 * * *"
+    }
+  ]
 }

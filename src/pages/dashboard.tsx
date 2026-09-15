@@ -3,16 +3,17 @@
 import Head from 'next/head';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
 import { useAuthStore } from '@/store/authStore';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { AppHeader } from '@/components/AppHeader';
 import { supabase } from '@/lib/supabase';
 
 interface InventoryStats {
-  totalSKUs: number;
+  activeSKUs: number;
   totalUnits: number;
   warehouses: number;
   lowStockCount: number;
+  outOfStockCount: number;
 }
 
 interface SyncStatus {
@@ -22,26 +23,34 @@ interface SyncStatus {
   nextSync: string;
 }
 
+const CHANNEL_LABELS: Record<string, string> = {
+  WAYFAIR: 'Wayfair',
+  WM3P: 'Walmart Marketplace (WM3P)',
+  AMAZON3P: 'Amazon (AMAZON3P)',
+};
+
 export default function Dashboard() {
-  const router = useRouter();
-  const { user, tenantId, logout } = useAuthStore();
+  const { tenantId } = useAuthStore();
   const [stats, setStats] = useState<InventoryStats | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user || !tenantId) return;
+    if (!tenantId) return;
 
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
 
-        // Fetch inventory stats
+        // Fetch inventory stats - active products only, per owner feedback
+        // that "Total SKUs" was less useful than "Active SKUs."
         const { data: products } = await supabase
           .from('products')
-          .select('id, reorder_threshold')
+          .select('id, reorder_threshold, status')
           .eq('tenant_id', tenantId)
           .is('deleted_at', null);
+
+        const activeProducts = (products || []).filter((p) => p.status === 'ACTIVE');
 
         const { data: batches } = await supabase
           .from('inventory_batches')
@@ -59,32 +68,38 @@ export default function Dashboard() {
         batches?.forEach((b) => {
           availableByProduct.set(b.product_id, (availableByProduct.get(b.product_id) || 0) + (b.quantity_available || 0));
         });
-        const lowStockCount =
-          products?.filter((p) => (availableByProduct.get(p.id) || 0) < p.reorder_threshold).length || 0;
+        const lowStockCount = activeProducts.filter(
+          (p) => (availableByProduct.get(p.id) || 0) < p.reorder_threshold
+        ).length;
+        const outOfStockCount = activeProducts.filter((p) => (availableByProduct.get(p.id) || 0) <= 0).length;
 
         setStats({
-          totalSKUs: products?.length || 0,
+          activeSKUs: activeProducts.length,
           totalUnits,
           warehouses: warehouses?.length || 0,
           lowStockCount,
+          outOfStockCount,
         });
 
-        // Fetch sync logs for status
-        const { data: syncLogs } = await supabase
-          .from('sync_logs')
-          .select('channel, status, completed_at')
+        // Sync status per channel, driven by the channels table (the
+        // source of truth for last_sync_at and each channel's configured
+        // interval), not just the most recent log line.
+        const { data: channelsData } = await supabase
+          .from('channels')
+          .select('channel_name, is_active, last_sync_at, sync_frequency_minutes')
           .eq('tenant_id', tenantId)
-          .order('started_at', { ascending: false })
-          .limit(3);
+          .order('channel_name', { ascending: true });
 
-        const channels = ['Amazon', 'Walmart', 'Wayfair'];
-        const statuses: SyncStatus[] = channels.map((channel) => {
-          const lastLog = syncLogs?.find((log) => log.channel?.includes(channel));
+        const statuses: SyncStatus[] = (channelsData || []).map((c) => {
+          const lastSyncDate = c.last_sync_at ? new Date(c.last_sync_at) : null;
+          const nextSyncDate = lastSyncDate
+            ? new Date(lastSyncDate.getTime() + c.sync_frequency_minutes * 60 * 1000)
+            : null;
           return {
-            channel,
-            lastSync: lastLog?.completed_at ? new Date(lastLog.completed_at).toLocaleString() : 'Never',
-            status: lastLog?.status === 'success' ? 'success' : 'pending',
-            nextSync: new Date(Date.now() + 5 * 60 * 1000).toLocaleTimeString(), // 5 min from now
+            channel: CHANNEL_LABELS[c.channel_name] || c.channel_name,
+            lastSync: lastSyncDate ? lastSyncDate.toLocaleString() : 'Never',
+            status: lastSyncDate ? 'success' : 'pending',
+            nextSync: nextSyncDate ? nextSyncDate.toLocaleString() : '—',
           };
         });
 
@@ -97,16 +112,7 @@ export default function Dashboard() {
     };
 
     fetchDashboardData();
-  }, [user, tenantId]);
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      router.push('/login');
-    } catch (err) {
-      console.error('Logout failed:', err);
-    }
-  };
+  }, [tenantId]);
 
   return (
     <ProtectedRoute>
@@ -115,36 +121,7 @@ export default function Dashboard() {
       </Head>
 
       <main className="min-h-screen bg-slate-50">
-        {/* Header */}
-        <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Nestora Pulse</h1>
-              <p className="text-slate-600 text-sm">Inventory Management Dashboard</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <Link href="/products" className="text-blue-600 hover:underline font-medium">
-                Products
-              </Link>
-              <Link href="/warehouses" className="text-blue-600 hover:underline font-medium">
-                Warehouses
-              </Link>
-              <Link href="/admin/users" className="text-blue-600 hover:underline font-medium">
-                Users
-              </Link>
-              <Link href="/channels" className="text-blue-600 hover:underline font-medium">
-                Channels
-              </Link>
-              <span className="text-slate-600">{user?.email}</span>
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 text-slate-600 hover:text-slate-900 font-medium"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-        </header>
+        <AppHeader title="Dashboard" />
 
         {/* Content */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -158,12 +135,12 @@ export default function Dashboard() {
               {/* Inventory Stats */}
               <section className="mb-8">
                 <h2 className="text-xl font-bold text-slate-900 mb-4">Inventory Overview</h2>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  {/* Total SKUs */}
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  {/* Active SKUs */}
                   <div className="bg-white rounded-lg shadow p-6">
-                    <div className="text-slate-600 text-sm font-medium">Total SKUs</div>
-                    <div className="text-4xl font-bold text-slate-900 mt-2">{stats?.totalSKUs || 0}</div>
-                    <div className="text-slate-500 text-xs mt-2">Unique products</div>
+                    <div className="text-slate-600 text-sm font-medium">Active SKUs</div>
+                    <div className="text-4xl font-bold text-slate-900 mt-2">{stats?.activeSKUs || 0}</div>
+                    <div className="text-slate-500 text-xs mt-2">Status = Active</div>
                   </div>
 
                   {/* Total Units */}
@@ -184,7 +161,14 @@ export default function Dashboard() {
                   <div className="bg-white rounded-lg shadow p-6">
                     <div className="text-slate-600 text-sm font-medium">Low Stock</div>
                     <div className="text-4xl font-bold text-orange-600 mt-2">{stats?.lowStockCount || 0}</div>
-                    <div className="text-slate-500 text-xs mt-2">Items to reorder</div>
+                    <div className="text-slate-500 text-xs mt-2">Below reorder threshold</div>
+                  </div>
+
+                  {/* Out of Stock */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <div className="text-slate-600 text-sm font-medium">Out of Stock</div>
+                    <div className="text-4xl font-bold text-red-600 mt-2">{stats?.outOfStockCount || 0}</div>
+                    <div className="text-slate-500 text-xs mt-2">Zero units available</div>
                   </div>
                 </div>
               </section>
@@ -226,14 +210,22 @@ export default function Dashboard() {
                 </div>
               </section>
 
-              {/* Phase 2 Notice */}
+              {/* Status Notice */}
               <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-800">
-                  <strong>Phase 2 (in progress):</strong> Inventory CRUD —{' '}
+                  <strong>Live:</strong> Inventory — {' '}
                   <Link href="/products" className="underline font-medium">
-                    manage products
+                    products
                   </Link>
-                  . Channel sync (Amazon, Wayfair, Walmart) coming next.
+                  ,{' '}
+                  <Link href="/warehouses" className="underline font-medium">
+                    warehouses
+                  </Link>
+                  . Channel sync — order pull and inventory push are working for{' '}
+                  <Link href="/channels" className="underline font-medium">
+                    Wayfair and Walmart
+                  </Link>
+                  ; Amazon isn&apos;t connected yet.
                 </p>
               </div>
             </>

@@ -49,6 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let status: 'success' | 'failed' = 'success';
   let errorMessage: string | null = null;
   let itemErrors: string[] = [];
+  let pushedItems: { sku: string; quantity: number; supplierId: number }[] = [];
 
   try {
     // Wayfair assigns a supplier ID per fulfillment warehouse (they use
@@ -134,6 +135,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       );
 
       const result = await pushWayfairInventory(items, false);
+      pushedItems = items.map((it) => ({
+        sku: it.supplierPartNumber,
+        quantity: it.quantityOnHand,
+        supplierId: it.supplierId,
+      }));
       // inventory.save is processed asynchronously - result.itemCount /
       // result.errorCount reflect completion state at the instant this
       // call returns, which is always ~0 right after submitting (proven
@@ -174,6 +180,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     error_message: errorMessage ? `${errorMessage} (${summary})` : summary,
     started_at: startedAt,
     completed_at: new Date().toISOString(),
+    pushed_items: pushedItems,
   });
 
   if (status === 'failed') {

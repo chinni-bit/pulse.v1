@@ -5,6 +5,8 @@ import { supabase } from '@/lib/supabase';
 interface AuthStore {
   user: User | null;
   tenantId: string | null;
+  tenantName: string | null;
+  role: string | null;
   isLoading: boolean;
   error: string | null;
 
@@ -21,9 +23,16 @@ interface AuthStore {
   checkAuth: () => Promise<void>;
 }
 
+async function fetchTenantName(tenantId: string): Promise<string | null> {
+  const { data } = await supabase.from('tenants').select('name').eq('id', tenantId).single();
+  return data?.name || null;
+}
+
 export const useAuthStore = create<AuthStore>((set) => ({
   user: null,
   tenantId: null,
+  tenantName: null,
+  role: null,
   isLoading: false,
   error: null,
 
@@ -40,16 +49,17 @@ export const useAuthStore = create<AuthStore>((set) => ({
       if (error) throw error;
       if (!data.user) throw new Error('Login succeeded but no user returned');
 
-      // Fetch tenant_id from users table
+      // Fetch tenant_id + role from users table
       const { data: userData, error: userError } = await supabase
         .from('users')
-        .select('tenant_id')
+        .select('tenant_id, role')
         .eq('id', data.user.id)
         .single();
 
       if (userError) throw userError;
 
-      set({ user: data.user, tenantId: userData.tenant_id, isLoading: false });
+      const tenantName = await fetchTenantName(userData.tenant_id);
+      set({ user: data.user, tenantId: userData.tenant_id, tenantName, role: userData.role, isLoading: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
       set({ error: message, isLoading: false });
@@ -105,7 +115,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     try {
       set({ isLoading: true, error: null });
       await supabase.auth.signOut();
-      set({ user: null, tenantId: null, isLoading: false });
+      set({ user: null, tenantId: null, tenantName: null, role: null, isLoading: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Logout failed';
       set({ error: message, isLoading: false });
@@ -120,22 +130,23 @@ export const useAuthStore = create<AuthStore>((set) => ({
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
-        set({ user: null, tenantId: null, isLoading: false });
+        set({ user: null, tenantId: null, tenantName: null, role: null, isLoading: false });
         return;
       }
 
-      // Fetch tenant_id
+      // Fetch tenant_id + role
       const { data: userData, error: userError } = await supabase
         .from('users')
-        .select('tenant_id')
+        .select('tenant_id, role')
         .eq('id', user.id)
         .single();
 
       if (userError) throw userError;
 
-      set({ user, tenantId: userData.tenant_id, isLoading: false });
+      const tenantName = await fetchTenantName(userData.tenant_id);
+      set({ user, tenantId: userData.tenant_id, tenantName, role: userData.role, isLoading: false });
     } catch (err) {
-      set({ user: null, tenantId: null, isLoading: false });
+      set({ user: null, tenantId: null, tenantName: null, role: null, isLoading: false });
     }
   },
 }));

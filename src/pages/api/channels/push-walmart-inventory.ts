@@ -48,6 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const itemErrors: string[] = [];
   let status: 'success' | 'failed' = 'success';
   let errorMessage: string | null = null;
+  const pushedItems: { sku: string; quantity: number }[] = [];
 
   try {
     // Every active product is reportable by default, using its own SKU
@@ -71,7 +72,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .from('product_mappings')
       .select('product_id, channel_sku')
       .eq('tenant_id', tenantId)
-      .eq('channel', 'WALMART');
+      .eq('channel', 'WM3P');
 
     if (overridesError) {
       throw new Error(`Failed to read product_mappings: ${overridesError.message}`);
@@ -108,6 +109,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         try {
           await pushWalmartInventory(sku, quantity);
           itemCount++;
+          pushedItems.push({ sku, quantity });
         } catch (err) {
           errorCount++;
           itemErrors.push(`${sku}: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -134,7 +136,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   await callerClient.from('sync_logs').insert({
     tenant_id: tenantId,
-    channel: 'WALMART',
+    channel: 'WM3P',
     sync_type: 'push_inventory',
     status,
     records_synced: itemCount,
@@ -142,6 +144,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     error_message: errorMessage ? `${errorMessage} (${summary})` : summary,
     started_at: startedAt,
     completed_at: new Date().toISOString(),
+    pushed_items: pushedItems,
   });
 
   if (status === 'failed') {

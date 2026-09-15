@@ -58,7 +58,7 @@ export default function Login() {
           {/* Logo / Header */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-slate-900">Nestora Pulse</h1>
-            <p className="text-slate-600 mt-2">Multi-tenant Inventory Dashboard</p>
+            <p className="text-slate-600 mt-2">Inventory &amp; Sales Management</p>
           </div>
 
           {/* Login Form */}
