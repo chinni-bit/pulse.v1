@@ -64,11 +64,6 @@ export default function Dashboard() {
 
         const activeProducts = (products || []).filter((p) => p.status === 'ACTIVE');
 
-        const { data: batches } = await supabase
-          .from('inventory_batches')
-          .select('product_id, quantity_available')
-          .eq('tenant_id', tenantId);
-
         // Only active warehouses count toward the tile - deactivated
         // warehouses (see /warehouses) are excluded.
         const { data: warehouses } = await supabase
@@ -77,12 +72,30 @@ export default function Dashboard() {
           .eq('tenant_id', tenantId)
           .eq('is_active', true);
 
-        const totalUnits = batches?.reduce((sum, b) => sum + (b.quantity_available || 0), 0) || 0;
+        // Inventory totals are scoped to active warehouses via
+        // batch_locations (owner's call 2026-09-15: every inventory batch
+        // upload will assign a warehouse via batch_locations going
+        // forward, so this is the correct source of truth going forward -
+        // not the warehouse-agnostic inventory_batches.quantity_available
+        // used previously). Batches with no batch_locations row yet
+        // (nothing uploaded that way so far) won't count here until they
+        // are assigned a warehouse.
+        const { data: locations } = await supabase
+          .from('batch_locations')
+          .select('quantity, inventory_batches!inner(product_id), warehouses!inner(is_active)')
+          .eq('tenant_id', tenantId)
+          .eq('warehouses.is_active', true);
 
         const availableByProduct = new Map<string, number>();
-        batches?.forEach((b) => {
-          availableByProduct.set(b.product_id, (availableByProduct.get(b.product_id) || 0) + (b.quantity_available || 0));
-        });
+        let totalUnits = 0;
+        (locations as unknown as { quantity: number; inventory_batches: { product_id: string } }[] || []).forEach(
+          (loc) => {
+            const productId = loc.inventory_batches.product_id;
+            const qty = loc.quantity || 0;
+            availableByProduct.set(productId, (availableByProduct.get(productId) || 0) + qty);
+            totalUnits += qty;
+          }
+        );
         const lowStock = activeProducts
           .filter((p) => (availableByProduct.get(p.id) || 0) < p.reorder_threshold)
           .map((p) => ({
