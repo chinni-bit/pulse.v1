@@ -13,6 +13,7 @@ const NAV_LINKS = [
   { href: '/inventory-counts', label: 'Counts' },
   { href: '/inventory-adjustments', label: 'Adjustments' },
   { href: '/inventory-loss-gain-report', label: 'Loss/Gain Report' },
+  { href: '/analytics-sales', label: 'Sales Analytics' },
   { href: '/warehouses', label: 'Warehouses' },
   { href: '/orders', label: 'Orders' },
   { href: '/customers', label: 'Customers' },

@@ -812,6 +812,52 @@ with FIFO loss costing, the approval workflow, and QC holds; and this
 reporting layer. Next up on the roadmap: item 4, the analytics/graphs
 suite.
 
+## Analytics suite, page 1 of 5: Sales/Revenue Trends (2026-09-16)
+
+Item 4 on the roadmap. Scoped in detailed discussion first, same pattern
+as every item since Customers - full reasoning (chart library choice,
+page structure, interactivity requirements) recorded in
+`decisions/002-phase1-hardening-and-phase2-plan.md` under "Analytics/
+graphs suite scope - decided" and mirrored to Drive
+(`ANALYTICS_SUITE_SCOPE_DECIDED_2026-09-16`).
+
+- **New dependency: Recharts.** Checked via `npm audit` before adopting
+  (same discipline as the CSV-vs-xlsx call in item 3) - zero new
+  vulnerabilities; the only audit findings remain the pre-existing
+  Next.js/PostCSS ones from before this round.
+- New `/analytics-sales` page (nav: "Sales Analytics") - first of 5
+  planned Analytics pages (Sales/Revenue, Channel Performance, Product
+  Performance, Inventory Trends, Loss/Gain Trends - each its own page,
+  per the owner's preference).
+- Granularity toggle (Daily/Weekly/Monthly) and date-range presets
+  (Today/This Week/This Month/This Year/All Time/Custom), defaulting to
+  This Month - applies to every chart in the suite going forward, not
+  just this page.
+- Break down by: Overall, Channel, Customer Group, Brand, or Product
+  (top 5 by revenue) - a stacked bar chart with one series per category.
+- Every bar has a hover tooltip (exact values per series) and is
+  clickable - clicking opens a detail table of the actual orders/line
+  items behind that specific bar, both required per the owner's spec,
+  not just one or the other.
+- **Real bug caught during live verification:** the daily/weekly bucket
+  keys were built with `Date.toISOString()`, which is UTC-based. The
+  database stores timezone-naive timestamps, so two orders on
+  genuinely different local calendar days (verified via direct SQL:
+  Sep 13 and Sep 14) were merging into a single mislabeled bucket in
+  the browser's local timezone (EDT). Fixed by building bucket keys
+  from local date components (`getFullYear`/`getMonth`/`getDate`)
+  throughout, matching the local-time convention the rest of this
+  codebase already uses elsewhere (e.g. the Orders page's own date
+  presets) - verified live after the fix: two correctly separated bars
+  appeared, each matching a direct SQL sum exactly ($7569.78 and
+  $6215.96).
+- Verified live: default view totals ($13,785.74) match the same
+  company-wide figure already proven correct on the Customers page;
+  click-to-drill-down on a bar returned exactly the 20 real orders for
+  that day, summing to the bar's own value; Channel breakdown's stacked
+  tooltip (Amazon/Shopify/Walmart/Wayfair) summed to the same day total.
+  Read-only page - no test data to clean up.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
