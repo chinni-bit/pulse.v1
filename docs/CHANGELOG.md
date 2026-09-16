@@ -940,6 +940,71 @@ graphs suite scope - decided" and mirrored to Drive
   $2,909.85); a leaderboard-row click (BC-CRIB-001, 22 lines, 46 units,
   $29,987.54, matching the leaderboard row exactly).
 
+## Analytics suite, pages 4 and 5 of 5: Inventory Trends and Loss/Gain Trends - suite complete (2026-09-16)
+
+- **A bigger version of the same data gap, found before building
+  anything:** every inventory event-history table - `inventory_audit_log`,
+  `inventory_adjustments`, `inventory_counts`, `inventory_qc_holds`,
+  `inventory_transfers`, `batch_movements` - had zero rows. Only the 5
+  real static batches existed (today's snapshot, no history at all), so
+  there was nothing to plot a trend from. Flagged to the owner before
+  building rather than shipping empty charts. This one was a bigger call
+  than page 3's gap because the backfill would also show up on the
+  already-shipped Inventory Mgmt/Adjustments/Loss-Gain Report pages, not
+  just a new analytics page. Owner's call: generate and keep dummy
+  inventory event history, same as the page-3 order backfill.
+- **Historical inventory events added, retained on owner's instruction:**
+  70 adjustments (LOSS/GAIN, real reason codes from the Adjustments
+  page's own dropdown), 20 QC holds, 11 completed transfers, and 45
+  physical counts, spread across the 3 real warehouses and the 15 real
+  SKUs over the same ~6-month window as the order backfill. All marked
+  with a `Historical backfill - analytics trend data (2026-09-16)` note
+  and generated with the same `hashtext()`-per-row-id determinism used
+  for the order backfill. Deliberately does **not** touch the real
+  batches' or batch_locations' current-state columns - this is
+  reporting/trend history layered on top, not a replay that mutates
+  today's real on-hand quantities. One data-quality fix made along the
+  way: a first pass left a few backfilled transfers sitting in
+  `IN_TRANSIT` status from months ago, which would have shown up as
+  currently-in-progress on the live In Transit bucket - updated those to
+  `COMPLETED` since they're historical events, not active ones.
+- New `/analytics-inventory` page (nav: "Inventory Trends") - Daily/
+  Weekly/Monthly + date-range + warehouse filter controls.
+  - **Current Inventory Snapshot**: a live (not date-filtered) read of
+    all 5 inventory buckets from the Warehouse/Inventory Management
+    module - On-Hand, Unassigned, In Transit, On the Water, QC Hold -
+    plus a Total in System figure. This also happens to be the first
+    place in the app showing that combined total; the owner's original
+    ask for it on the `/inventory` page specifically is still open.
+  - **Warehouse Activity Summary**: adjustments/net $/transfers/QC
+    holds/counts per warehouse for the selected range.
+  - **Inventory Activity Over Time**: a stacked bar chart, one series
+    per event category (Adjustments, Transfers, QC Holds, Counts),
+    reusing the per-`<Bar>`-onClick drill-down pattern from pages 2-3 -
+    clicking a segment shows that category's events for the period.
+- New `/analytics-loss-gain` page (nav: "Loss/Gain Trends") - takes the
+  existing `/inventory-loss-gain-report` snapshot view (company/
+  warehouse/reason breakdowns, which it reuses almost verbatim) and adds
+  the Daily/Weekly/Monthly time-series treatment every other page in
+  this suite has: a Loss $ vs Gain $ (or Units) stacked-over-time chart
+  with the same click-to-drill pattern, plus a Value $ / Units metric
+  toggle and the by-warehouse and by-reason tables underneath.
+- Verified live against direct SQL, all exact matches: the Current
+  Snapshot (460 on-hand + 4 QC hold = 464 total, matching
+  `batch_locations` and `inventory_qc_holds` directly); a chart-segment
+  click on page 4 (QC Holds, May 2026, 4 events, same dates/quantities/
+  reasons/statuses as the database); the All Time company totals on
+  page 5 ($22,700.00 loss / 234 units, $9,330.00 gain / 88 units); the
+  By Warehouse breakdown (three warehouses' loss/gain sums add up to
+  the same company totals exactly); and a chart-segment click on page 5
+  (Loss, Aug 16: BC-CRIB-001, NJ/WH100, Damaged/Broken, qty 2, $550.00,
+  matching the database row exactly).
+
+**This completes the Analytics/graphs suite (roadmap item 4 of 6).**
+All 5 pages shipped: Sales/Revenue Trends, Channel Performance, Product
+Performance, Inventory Trends, Loss/Gain Trends. Remaining roadmap
+items: 5 (mobile app, read-only) and 6 (hardening/backups).
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
