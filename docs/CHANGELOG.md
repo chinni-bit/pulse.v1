@@ -487,6 +487,51 @@ minimal exclusivity-only tables from the Product page taxonomy round.
   on the new `customer_contacts` table as part of the same migration,
   per the lesson from the RLS bug caught in the prior round.
 
+## Dedicated Inventory page (2026-09-16)
+
+Second round of the owner's sequenced roadmap. Scoped in discussion
+first: read-only this round (receiving stock / adjustments / counts
+stay with item 3, "warehouse/inventory management").
+
+- New `/inventory` page — every active-status SKU as a row, one column
+  per active warehouse (togglable via checkboxes - "Select all"/"Select
+  none"), an "Unassigned" column, and a "Total" column that always sums
+  every active warehouse regardless of which are currently shown, so
+  filtering down to a subset of warehouses never loses the full-company
+  context.
+- "Show $ value" toggle adds a dollar figure next to every quantity
+  (qty × the owning batch's `cost_per_unit`, FIFO-aware since it's priced
+  batch by batch, not off `products.cost`). Off by default, units only.
+- Each SKU with batches can expand to a batch-level breakdown: batch
+  number, landed date, cost/unit, quantity available, and exactly which
+  warehouse(s) it's split across (or "not assigned to a warehouse yet").
+- Company-wide summary strip: total units, total value (when the $
+  toggle is on), low-stock SKU count, out-of-stock SKU count, and total
+  unassigned units - using the same reorder-threshold logic as the
+  dashboard's tiles, so the numbers agree.
+- **Real gap this page surfaced immediately, not synthetic:** all 5
+  existing `inventory_batches` rows (460 units total, real costs like
+  $250/unit) have **zero** `batch_locations` rows - none of the current
+  inventory has ever been assigned to a warehouse. This predates the
+  active-warehouse dashboard fix from two rounds ago, which was written
+  assuming batch uploads would start carrying a warehouse "going
+  forward" - that assumption hasn't been exercised yet by any real data.
+  Every SKU with stock currently shows correctly as "Out of Stock" on
+  both the dashboard and this new page as a direct, accurate consequence
+  - not a bug, but flagged because it's a real usability gap until
+  resolved. Also noticed while checking this: `warehouses` has two rows
+  sharing the same `code` for each of the three real locations (e.g. two
+  different rows both coded `MS/WH800` - one named plainly, one prefixed
+  "QA") - flagged to the owner, not resolved in this round.
+- No schema migration needed - `inventory_batches.cost_per_unit` and
+  `batch_locations.quantity` already existed from the original schema,
+  just unused by any UI until now.
+- Verified live: company summary, warehouse checkboxes (including
+  deselecting all warehouses and confirming Unassigned/Total still
+  showed full context), $ value toggle math, batch-level expand, status
+  filter, search - all against the real (unassigned) data, no test data
+  created or needing cleanup.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at

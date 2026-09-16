@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/authStore';
 const NAV_LINKS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/products', label: 'Products' },
+  { href: '/inventory', label: 'Inventory' },
   { href: '/warehouses', label: 'Warehouses' },
   { href: '/orders', label: 'Orders' },
   { href: '/customers', label: 'Customers' },
