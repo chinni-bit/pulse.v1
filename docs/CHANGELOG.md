@@ -677,6 +677,47 @@ drayage + allocated unloading + a procurement/QC overhead percentage.
   entries, the temporary country-of-origin edit, and the two batches'
   cost/status) cleaned up and reverted after.
 
+## Physical counts, worklist generator, CSV batch upload (2026-09-16)
+
+Phase 3 of item 3 on the roadmap. `inventory_counts` schema was already
+in place from phase 1; this round built the UI.
+
+- New `/inventory-counts` page (nav: "Counts").
+- **Count Worklist Generator** — pick a warehouse and one of four
+  criteria (quantity below a threshold, top N by dollar value, oldest
+  landed batches, random sample of N), get a filtered/sorted SKU list
+  with system quantity, value, and oldest landed date. A "Print This
+  List" button produces a clean write-in sheet (SKU/Title/System Qty/
+  blank Counted Qty column) using `print:` Tailwind variants to hide
+  everything else on the page - no new dependency, just CSS.
+- **Manual per-line count entry** — pick product + warehouse, see the
+  live system quantity, enter what was actually counted, see the
+  variance calculate live before submitting. Recorded counts that don't
+  match the system don't create an adjustment yet (that's phase 4) -
+  they're logged with a message saying so, not silently dropped.
+- **CSV batch upload** — parse a CSV (SKU, Warehouse code, Counted
+  Quantity, optional Notes), preview every row with its resolved system
+  quantity and computed variance, flag unmatched SKUs/warehouse codes
+  per-row before anything is written, then confirm to insert all valid
+  rows tagged with a shared `upload_batch_id`.
+- **A security call worth recording:** tried `xlsx` (SheetJS) for real
+  `.xlsx` parsing first, since that's what "Excel file" literally means.
+  `npm audit` flagged it with two vulnerabilities (prototype pollution,
+  ReDoS) with **no fix available** - and this feature's entire purpose
+  is parsing user-uploaded files, the exact scenario those bugs get
+  triggered in. Removed it immediately rather than ship it, and used
+  CSV instead (hand-written parser, no dependency, no untrusted-input
+  attack surface) - Excel exports to CSV natively, so this doesn't lose
+  real functionality, just requires a save-as step.
+- Every count logs to `inventory_audit_log` (`COUNT_SUBMITTED` for
+  manual entries, `COUNT_BATCH_UPLOADED` for CSV batches).
+- Verified live end-to-end: worklist by top-value math hand-checked
+  against real data (matched exactly), manual count entry with a real
+  variance (-3) recorded and displayed correctly, CSV upload with one
+  intentionally-bad row (unmatched SKU) correctly excluded while the two
+  valid rows uploaded and matched their real system quantities. Test
+  data (3 count rows, 2 audit entries) cleaned up after.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
