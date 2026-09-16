@@ -1051,6 +1051,41 @@ items: 5 (mobile app, read-only) and 6 (hardening/backups).
   them to phone width is its own scoping question). Full read/write
   mobile access remains Phase 3+, unchanged, not started.
 
+## Documentation housekeeping: decisions log moved into git (2026-09-16)
+
+Owner asked why the local `decisions/` folder and the Drive milestone
+docs use different naming conventions - honest answer was they grew
+independently (a numbered-kebab-case ADR style locally vs. matching the
+ALL_CAPS style of the original pre-existing Drive planning docs), never
+reconciled. That surfaced a bigger issue while answering: `decisions/
+002-phase1-hardening-and-phase2-plan.md`, the single richest "why"
+document for this project, existed ONLY in the local planning folder -
+not git-tracked, not on Drive, a single point of failure on one machine.
+
+Fixed: moved it to `docs/decisions/002-...md` in this code repo (git-
+tracked, same durability as this file), leaving a short pointer stub at
+the old planning-folder location so a future search there finds it
+instead of two diverging copies. Deliberately a move, not a synced-copy
+pair like this CHANGELOG's own two-copy setup - that pattern already
+caused a real drift bug once (see below), not worth repeating for a
+second file.
+
+Also published one evergreen `NESTORA_PULSE_PROJECT_STATUS` doc on
+Drive - updated in place going forward rather than superseded by a new
+dated snapshot each time, so there's a single current-state page to
+read first instead of reconstructing status from a dozen individual
+milestone docs.
+
+**A real gap found while documenting where things live, not yet
+fixed:** only 1 of the 17 migrations actually applied to the live
+Supabase database is captured as a git-tracked `.sql` file
+(`supabase/migrations/001_initial_schema.sql`); the other 16 were
+applied directly to the live database this session via tooling and
+never written out locally. If the Supabase project were ever lost, the
+schema could not be fully rebuilt from git alone. Flagged in the new
+status doc as a known item for the hardening/backups phase (roadmap
+item 6) - not fixed in this round, scope wasn't asked for.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
