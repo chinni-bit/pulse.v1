@@ -891,6 +891,55 @@ graphs suite scope - decided" and mirrored to Drive
   Sep 13, matching the known 20-order day total. Read-only page, no
   test data to clean up.
 
+## Analytics suite, page 3 of 5: Product Performance (2026-09-16)
+
+- **Data gap found before building anything:** `order_items` (the line
+  items a product-level report has to be built on) only covered 4 of
+  the 57 real seeded orders - 53 orders had a `total_amount` but no
+  per-SKU breakdown at all, which would have made a Product Performance
+  page nearly empty and not representative. Flagged this to the owner
+  instead of shipping a misleading page. Owner's call: generate dummy
+  order + order_item test data spread across several months for the
+  real SKUs, and keep it in place (not a one-round throwaway like the
+  `xlsx` test files) so every analytics page - this one and the ones
+  still to come - has enough volume and date spread to actually
+  exercise the Daily/Weekly/Monthly toggles and the top/bottom-seller
+  math.
+- **Test data added, retained on owner's instruction:** 180 orders
+  (`order_number` prefixed `TEST-ORD-`) and 364 order-item lines across
+  all 15 real product SKUs (the leftover `TEST-SKU-001` test product
+  excluded), dated across ~6 months (2026-03-20 through 2026-09-15).
+  Generated with Postgres `hashtext()`-derived values keyed off each
+  order's id so channel/status/date/product/qty/price are all
+  deterministic per row - caught and fixed a real bug here too: a first
+  attempt used a `random()` call inside an uncorrelated `LATERAL`
+  subquery for the order date, which Postgres evaluated once and reused
+  for all 180 rows (every order got the identical timestamp instead of
+  a spread). Deleted that batch and regenerated with per-row-correlated
+  hashing instead. Each order's `total_amount` is kept in sync with the
+  sum of its own line items.
+- New `/analytics-products` page (nav: "Product Analytics") - Daily/
+  Weekly/Monthly + date-range controls as pages 1-2, plus a Revenue $ /
+  Units / Margin $ metric toggle and a Brand filter.
+- **Totals strip**: units sold, revenue, COGS, margin $, and blended
+  margin % for the selected range/brand.
+- **Top Sellers / Bottom Sellers leaderboards**, side by side, ranked
+  by whichever metric is selected - built from the full real product
+  catalog (not just SKUs with sales), so a true zero-seller shows up in
+  Bottom Sellers with $0/em-dash margin rather than being silently
+  excluded. Clicking any row drills into that SKU's full order-line
+  history for the current range.
+- **{Metric} by Brand Over Time**: a stacked bar chart, one series per
+  brand (the same per-`<Bar>` `onClick` pattern fixed on page 2, reused
+  here without needing to rediscover it), drilling into that brand's
+  order lines for the clicked period.
+- Verified live against direct SQL, all exact: This Month totals (53
+  units / $11,813.47 revenue / $6,618.47 margin); an All Time total
+  (624 units / $152,346.96 revenue / $84,486.96 margin, 55.5% blended);
+  a chart-segment click (Kingsley, Jul 2026, 8 lines summing to exactly
+  $2,909.85); a leaderboard-row click (BC-CRIB-001, 22 lines, 46 units,
+  $29,987.54, matching the leaderboard row exactly).
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
