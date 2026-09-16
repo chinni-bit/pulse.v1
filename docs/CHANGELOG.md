@@ -532,6 +532,28 @@ stay with item 3, "warehouse/inventory management").
   filter, search - all against the real (unassigned) data, no test data
   created or needing cleanup.
 
+## Inventory data cleanup, same day (2026-09-16)
+
+Follow-up to the two items the Inventory page surfaced, resolved same
+day per owner direction:
+
+- **Warehouse duplicates removed.** Confirmed via `wayfair_supplier_id`
+  (set on the plain-named rows: NJ/WH100 -> 81454, MS/WH800 -> 81852;
+  null on all three "QA"-prefixed rows) and a check for any references
+  (`batch_locations`, the unused legacy `inventory` table) before
+  deleting - the three "QA" rows had zero references anywhere. Deleted
+  them; exactly 3 warehouses remain (Mississippi, New Jersey, Wayfair
+  3PL), matching the owner's explicit "keep it to 3" direction.
+- **All 5 existing batches assigned to a warehouse.** Owner's direction:
+  assign each at random across the 3 real warehouses. Landed:
+  BATCH-001-SEP (95) and BATCH-004-SEP (195) -> New Jersey;
+  BATCH-002-AUG (42) and BATCH-005-SEP (58) -> Wayfair 3PL;
+  BATCH-003-SEP (70) -> Mississippi.
+- Verified live on both the dashboard and the new Inventory page: Total
+  Units now correctly reads 460 (was 0), Warehouses reads 3 (was 6),
+  Unassigned Units reads 0 (was 460), and each SKU's per-warehouse
+  breakdown matches the assignment above exactly.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
