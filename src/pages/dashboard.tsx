@@ -279,6 +279,18 @@ export default function Dashboard() {
                   ; Amazon isn&apos;t connected yet.
                 </p>
               </div>
+
+              <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                <p className="text-sm text-slate-600">
+                  <strong>On your phone:</strong> open{' '}
+                  <Link href="/m/dashboard" className="underline font-medium text-blue-700">
+                    /m/dashboard
+                  </Link>{' '}
+                  in your phone&apos;s browser, then use its Share/menu button to
+                  &quot;Add to Home Screen&quot; for a read-only, installable mobile
+                  view — no app store needed.
+                </p>
+              </div>
             </>
           )}
         </div>

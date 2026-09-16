@@ -1005,6 +1005,52 @@ All 5 pages shipped: Sales/Revenue Trends, Channel Performance, Product
 Performance, Inventory Trends, Loss/Gain Trends. Remaining roadmap
 items: 5 (mobile app, read-only) and 6 (hardening/backups).
 
+## Read-only mobile app (PWA) - roadmap item 5, first pass (2026-09-16)
+
+- **Tech-stack decision: a Progressive Web App on the existing Next.js/
+  Supabase app, not a native React Native app.** No app store, no Apple/
+  Google developer account (neither exists in this environment), no
+  separate codebase - installed via the phone browser's own "Add to Home
+  Screen." Full reasoning and the native-app alternative laid out for the
+  owner in `decisions/002-phase1-hardening-and-phase2-plan.md` under
+  "Mobile app: PWA approach and build."
+- New `public/manifest.json` (name, icons, `start_url: /m/dashboard`,
+  `scope: /m/` so only the mobile pages are installable, not the whole
+  desktop app) plus hand-generated PNG icons (a simple blue-and-white "P"
+  square, generated via .NET System.Drawing from PowerShell - no design
+  tool available).
+- New `src/components/MobileLayout.tsx` shared shell (compact header,
+  manifest/theme-color meta tags scoped to `/m/*` only, a fixed bottom
+  tab bar with inline SVG icons - no new icon library dependency) and
+  four new pages under `src/pages/m/`: Dashboard (stats, recent orders,
+  sync status), Inventory (read-only stock by warehouse, tap to expand),
+  Orders (recent list + detail modal), Sync Status (channel health,
+  recent sync runs). All reuse the same Supabase queries and tenant_id
+  filtering as their desktop equivalents, laid out as tappable cards
+  instead of tables for a 375px screen. A discovery link was added to
+  the bottom of the desktop `/dashboard` page pointing at `/m/dashboard`.
+- **A real bug found and reverted before shipping:** a first attempt also
+  added a minimal no-op service worker and registered it globally in
+  `_app.tsx` (Android's automatic "installable" PWA criteria generally
+  want one). Registering it broke every page in the app, not just the
+  new mobile ones - every page hung indefinitely at the auth-check
+  spinner, confirmed by removing the registration (fixed instantly) and
+  re-adding it (broke again, reproducibly). Given the blast radius of
+  getting this wrong - a hung service worker breaking the entire live
+  app for every user - versus the marginal benefit (Add to Home Screen
+  already works without one on iOS entirely, and on Android via the
+  browser's manual menu), the service worker was deleted rather than
+  shipped. The app is a plain manifest-only PWA with no service worker.
+- Verified live at a 375px mobile viewport: all four pages render real
+  data; Dashboard stats match the desktop dashboard exactly; Inventory's
+  CN-MATTRESS-001 expand showed exactly 195 units at NJ/WH100, matching
+  a direct database check; bottom-tab navigation, the order detail
+  modal, and inventory expand/collapse all confirmed working.
+- Analytics suite pages were deliberately left off this first mobile
+  pass (dense click-to-drill charts designed for desktop width; adapting
+  them to phone width is its own scoping question). Full read/write
+  mobile access remains Phase 3+, unchanged, not started.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at

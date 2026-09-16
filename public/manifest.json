@@ -1,0 +1,17 @@
+{
+  "name": "Nestora Pulse (Mobile)",
+  "short_name": "Pulse",
+  "description": "Read-only mobile view of Nestora Pulse - inventory, orders, and channel sync status.",
+  "start_url": "/m/dashboard",
+  "scope": "/m/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
