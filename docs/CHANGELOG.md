@@ -858,6 +858,39 @@ graphs suite scope - decided" and mirrored to Drive
   tooltip (Amazon/Shopify/Walmart/Wayfair) summed to the same day total.
   Read-only page - no test data to clean up.
 
+## Analytics suite, page 2 of 5: Channel Performance (2026-09-16)
+
+- New `/analytics-channels` page (nav: "Channel Analytics") - Wayfair
+  vs. Walmart vs. Amazon vs. Shopify (any channel with real order data),
+  same Daily/Weekly/Monthly + date-range controls as page 1.
+- **Channel Summary table**: orders, revenue, current active/inactive
+  status, last sync time, and sync run/failure counts for the selected
+  range, side by side per channel - the "sync health" half of the ask
+  that isn't naturally a time-series chart.
+- **Revenue/Orders by Channel Over Time**: a stacked bar chart, one
+  series per channel, with a Revenue $ / Order Count metric toggle.
+- **Sync Health Over Time**: a second stacked chart (from `sync_logs`)
+  showing success vs. failed sync runs per period.
+- **A real Recharts API gap found and fixed during live verification:**
+  the chart-level `onClick` handler on `<BarChart>` does not carry
+  `activePayload` in this Recharts version - confirmed by temporarily
+  logging the actual click-event state, which came back with only
+  `activeIndex`/`activeLabel`/`activeTooltipIndex`/`isTooltipActive`,
+  no payload at all. That meant clicking a stacked segment couldn't
+  identify *which* channel's segment was clicked. Fixed by moving the
+  click handler onto each individual `<Bar>` instead (one per channel),
+  reading the clicked segment's own `payload.key` - simpler and more
+  precise than trying to extract it from the chart-level event, and now
+  the correct pattern for every stacked-series drill-down still to come
+  in this suite (Product, Inventory, Loss/Gain Trends pages).
+- Verified live end-to-end: Channel Summary orders/revenue match the
+  same real totals already proven on page 1 and the Customers page;
+  clicking a Wayfair segment returned exactly its 5 real orders,
+  summing to the segment's own tooltip value ($2069.94) exactly; the
+  Order Count metric toggle showed 5/5/5/5 orders per channel for
+  Sep 13, matching the known 20-order day total. Read-only page, no
+  test data to clean up.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
