@@ -11,6 +11,7 @@ const NAV_LINKS = [
   { href: '/inventory-management', label: 'Inventory Mgmt' },
   { href: '/inventory-landed-cost', label: 'Landed Cost' },
   { href: '/inventory-counts', label: 'Counts' },
+  { href: '/inventory-adjustments', label: 'Adjustments' },
   { href: '/warehouses', label: 'Warehouses' },
   { href: '/orders', label: 'Orders' },
   { href: '/customers', label: 'Customers' },

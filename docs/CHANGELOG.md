@@ -718,6 +718,63 @@ in place from phase 1; this round built the UI.
   valid rows uploaded and matched their real system quantities. Test
   data (3 count rows, 2 audit entries) cleaned up after.
 
+## Adjustments, approval workflow, FIFO loss costing, QC holds (2026-09-16)
+
+Phase 4 of item 3 - the schema from phase 1 (`inventory_adjustments`,
+`inventory_adjustment_lines`, `inventory_qc_holds`) finally gets a UI.
+This is the phase that actually changes real inventory quantities based
+on a human decision, so it got the most careful live verification of
+the whole round.
+
+- New `/inventory-adjustments` page (nav: "Adjustments").
+- **Submit Adjustment** (any user): Loss or Gain, product, warehouse,
+  reason code (different lists per type - Damaged/Missing/Rendered for
+  Parts/Count Correction/Other for losses, Found/Count Correction/Other
+  for gains), quantity, notes.
+  - A **Loss** shows a live FIFO breakdown before submission - which
+    specific batches (oldest landed date first) the loss will be taken
+    from and at what cost, blocking submission if the warehouse doesn't
+    have enough on hand to cover it.
+  - A **Gain** asks for a unit value, defaulting to the SKU's most
+    recent landed cost (falling back to the product's own cost if it
+    has no batch history yet) - editable at submission.
+- **Pending Approval queue**: visible to everyone, but Approve/Reject
+  only render for admin/super_admin - matching the owner's clarified
+  model (a designated person enters, an authorized person approves; the
+  same account can hold both rights, no second-person requirement).
+  Nothing touches real inventory until approved:
+  - Approving a **Loss** re-verifies each FIFO line still has enough
+    stock (guards against changes since submission - if not, the
+    approver is told to ask for a resubmit rather than partially
+    applying), then decrements those exact batches' `batch_locations`
+    and `quantity_available`.
+  - Approving a **Gain** creates a brand new batch (landed-cost status
+    already `FINALIZED` at the entered/standard value) and places it in
+    the target warehouse.
+  - Rejecting makes no inventory change at all.
+- **QC Hold**: any user can place a hold (pulls quantity out of
+  `batch_locations` and the batch's `quantity_available` immediately -
+  it's no longer sellable, but nothing financial has happened yet).
+  Resolution is admin/super_admin-gated: **Release** puts the quantity
+  back with zero financial impact; **Write Off** records it as an
+  approved Loss adjustment (linked back to the hold) at that batch's
+  own cost - no separate approval step, since only an authorized person
+  could reach that button in the first place.
+- Counts with an unresolved variance (from phase 3) now show at the top
+  of the page with a "Prefill Adjustment" shortcut that carries the
+  product/warehouse/quantity/direction into the adjustment form and
+  links the count to the resulting adjustment once submitted, closing
+  the loop between counting and adjusting.
+- Every action logs to `inventory_audit_log`.
+- Verified live end-to-end, including the full money trail: a 10-unit
+  loss (FIFO-priced, hand-checked exact), a 15-unit gain at the
+  standard-cost fallback, a QC hold placed then written off (correctly
+  became an approved Loss adjustment linked to the hold), and a second
+  QC hold placed then released (confirmed quantity landed back exactly
+  where arithmetic predicted - 70 to start, -5, -3, +3 = 65). All test
+  data reverted/cleaned up after - batches, locations, adjustments, QC
+  holds, and audit entries all confirmed back to baseline.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
