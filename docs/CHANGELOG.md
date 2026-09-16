@@ -623,6 +623,60 @@ adjustments + approval + FIFO/QC, (5) loss/gain reporting.
   it landed at the destination. All test data cleaned up after; the 5
   real batches/locations from the earlier backfill are untouched.
 
+## Landed cost worksheet (2026-09-16)
+
+Elaboration of phase 2's receiving flow, scoped in a detailed discussion
+before building. The batch cost captured at receiving time is just
+purchase cost; this round adds computing the real landed cost (what
+actually goes into inventory valuation and FIFO loss costing later) -
+purchase cost + customs duty + allocated ocean freight + allocated
+drayage + allocated unloading + a procurement/QC overhead percentage.
+
+- New tables: `vendors_factories` (replaces the old free-text vendor
+  field with a real entity - name, country, and standard/default ocean
+  freight, drayage, and unloading amounts that prefill a worksheet, all
+  editable there), `country_tariff_rates` (duty % by country, matched
+  against `products.country_of_origin`, editable per worksheet too),
+  `inventory_settings` (tenant-wide default procurement overhead %, one
+  row per tenant), `inventory_shipments` (groups the batches a landed
+  cost worksheet was run against - either an import, factory -> on
+  water -> warehouse, or a local purchase, po -> warehouse directly),
+  `inventory_landed_cost_worksheets` + `_lines` (the calculation itself,
+  kept permanently as the audit record of how each batch's landed cost
+  was derived). `inventory_batches` gained `shipment_id` and
+  `landed_cost_status` (`PENDING`/`FINALIZED`).
+- New `/inventory-landed-cost` page (nav: "Landed Cost"): manage
+  vendors/factories and their standard rates, manage country tariff
+  rates, set the default overhead %, and build a worksheet - select any
+  number of pending batches (regardless of how they were received),
+  pick a vendor (prefills freight/drayage/unloading), pick an allocation
+  method (by value or by volume - volume uses each SKU's carton cubic
+  size, falling back to value-weighting if carton dimensions aren't
+  recorded), enter/adjust the shipment-level freight/drayage/unloading
+  totals and per-line duty rate, and see every line's computed landed
+  cost update live before finalizing.
+- Finalizing writes each batch's computed landed cost into its real
+  `cost_per_unit` (purchase cost is preserved on the worksheet line for
+  audit purposes), marks it `FINALIZED`, and logs the value change to
+  `inventory_audit_log`.
+- **Real gap this surfaced, not synthetic:** all 5 real inventory
+  batches from the original backfill show up as landed-cost `PENDING` -
+  they were seeded with a flat cost and never had a proper landed-cost
+  calculation run. Not resolved in this round (would need real
+  freight/duty/vendor numbers from the owner); flagged rather than
+  silently left invisible.
+- Verified live end-to-end: added a vendor with standard rates, added a
+  China tariff rate, temporarily set a product's country of origin to
+  China to prove the auto-pull, selected two SKUs into one worksheet,
+  confirmed vendor defaults pre-filled the freight/drayage/unloading
+  fields, hand-verified the value-based allocation math for both lines
+  against the app's own numbers (matched exactly), finalized, and
+  confirmed both batches' `cost_per_unit` updated to the computed landed
+  cost with the audit log recording the correct dollar delta. All test
+  data (vendor, tariff rate, shipment, worksheet, worksheet lines, audit
+  entries, the temporary country-of-origin edit, and the two batches'
+  cost/status) cleaned up and reverted after.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
