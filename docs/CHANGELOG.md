@@ -775,6 +775,43 @@ the whole round.
   data reverted/cleaned up after - batches, locations, adjustments, QC
   holds, and audit entries all confirmed back to baseline.
 
+## Loss / gain reporting - item 3 complete (2026-09-16)
+
+Phase 5, the last phase of the warehouse/inventory management round.
+Reads `inventory_adjustments` (status APPROVED only - realized financial
+events, matching the accounting framing this whole round was built
+around) with no schema changes needed.
+
+- New `/inventory-loss-gain-report` page (nav: "Loss/Gain Report").
+- Filters: date range (Today, This Week, This Month, This Year, All
+  Time, Custom Range - same preset pattern as the Orders page),
+  warehouse, reason code, and Loss/Gain/both.
+- Company-wide summary: total loss value + units, total gain value +
+  units, net.
+- By-warehouse breakdown: loss/gain value and units per warehouse, so
+  "historic loss/gains from each warehouse" is answerable directly.
+- By-reason breakdown: exactly what was asked for - search a period and
+  see total damage costs, total QC write-off costs, etc., by reason
+  code, not just a lump sum.
+- Full detail list underneath: every adjustment in the filtered range
+  with date, type, SKU, title, warehouse, reason, quantity, value,
+  source, and notes.
+- Verified live: inserted four adjustments spanning different
+  warehouses, reasons, and dates (2/10/1/60 days old) directly against
+  the database, confirmed This Month correctly excluded the 60-day-old
+  one from every total (3 adjustments, loss 1360/6u, gain 135/3u, net
+  -1225) while All Time correctly included it (4 adjustments, loss
+  1480/7u), and confirmed the by-warehouse and by-reason breakdowns
+  matched hand-calculated numbers exactly in both views. Test data
+  deleted after, table confirmed back to empty.
+
+**Item 3 (warehouse/inventory management) is now fully shipped** across
+all 5 phases: schema; receive/assign/transfer/on-water plus the landed
+cost worksheet; counts, worklist generator, and CSV upload; adjustments
+with FIFO loss costing, the approval workflow, and QC holds; and this
+reporting layer. Next up on the roadmap: item 4, the analytics/graphs
+suite.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
