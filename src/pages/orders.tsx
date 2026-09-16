@@ -14,10 +14,25 @@ interface Order {
   channel: string;
   customer_name: string | null;
   customer_email: string | null;
+  customer_id: string | null;
+  customer_group_id: string | null;
+  customers: { name: string } | null;
+  customer_groups: { name: string } | null;
   status: string;
   total_amount: number;
   shipping_address: string | null;
   created_at: string;
+}
+
+interface CustomerOption {
+  id: string;
+  name: string;
+  customer_group_id: string | null;
+}
+
+interface CustomerGroupOption {
+  id: string;
+  name: string;
 }
 
 interface OrderItem {
@@ -108,8 +123,12 @@ export default function Orders() {
   const [itemsByOrder, setItemsByOrder] = useState<Record<string, OrderItem[]>>({});
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState('');
+  const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>([]);
+  const [customerGroupOptions, setCustomerGroupOptions] = useState<CustomerGroupOption[]>([]);
+  const [assigning, setAssigning] = useState(false);
 
   const [channelFilter, setChannelFilter] = useState('ALL');
+  const [customerGroupFilter, setCustomerGroupFilter] = useState('ALL');
   const [datePreset, setDatePreset] = useState<DatePreset>('TODAY');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -126,7 +145,9 @@ export default function Orders() {
 
     const { data, error } = await supabase
       .from('orders')
-      .select('id, order_number, channel, customer_name, customer_email, status, total_amount, shipping_address, created_at')
+      .select(
+        'id, order_number, channel, customer_name, customer_email, customer_id, customer_group_id, customers(name), customer_groups(name), status, total_amount, shipping_address, created_at'
+      )
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
 
@@ -136,7 +157,7 @@ export default function Orders() {
       return;
     }
 
-    setOrders(data || []);
+    setOrders((data as unknown as Order[]) || []);
 
     const orderIds = (data || []).map((o) => o.id);
     if (orderIds.length > 0) {
@@ -157,14 +178,40 @@ export default function Orders() {
     setLoading(false);
   };
 
+  const fetchCustomerOptions = async () => {
+    if (!tenantId) return;
+    const [{ data: customersData }, { data: groupsData }] = await Promise.all([
+      supabase.from('customers').select('id, name, customer_group_id').eq('tenant_id', tenantId).eq('is_active', true).order('name'),
+      supabase.from('customer_groups').select('id, name').eq('tenant_id', tenantId).order('name'),
+    ]);
+    setCustomerOptions(customersData || []);
+    setCustomerGroupOptions(groupsData || []);
+  };
+
+  const assignOrderCustomer = async (order: Order, customerId: string, customerGroupId: string) => {
+    setAssigning(true);
+    const { error } = await supabase
+      .from('orders')
+      .update({ customer_id: customerId || null, customer_group_id: customerGroupId || null })
+      .eq('id', order.id);
+    setAssigning(false);
+
+    if (error) {
+      setListError(error.message);
+      return;
+    }
+    await fetchOrders();
+  };
+
   useEffect(() => {
     fetchOrders();
+    fetchCustomerOptions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
   useEffect(() => {
     setPage(1);
-  }, [channelFilter, pageSize, datePreset, customFrom, customTo]);
+  }, [channelFilter, customerGroupFilter, pageSize, datePreset, customFrom, customTo]);
 
   const channelOptions = useMemo(() => {
     const set = new Set(orders.map((o) => o.channel));
@@ -183,6 +230,11 @@ export default function Orders() {
 
   const filteredSorted = useMemo(() => {
     let filtered = channelFilter === 'ALL' ? orders : orders.filter((o) => o.channel === channelFilter);
+    if (customerGroupFilter === 'UNATTRIBUTED') {
+      filtered = filtered.filter((o) => !o.customer_id && !o.customer_group_id);
+    } else if (customerGroupFilter !== 'ALL') {
+      filtered = filtered.filter((o) => o.customer_group_id === customerGroupFilter);
+    }
     if (rangeFrom) filtered = filtered.filter((o) => new Date(o.created_at) >= rangeFrom);
     if (rangeTo) filtered = filtered.filter((o) => new Date(o.created_at) <= rangeTo);
 
@@ -242,6 +294,19 @@ export default function Orders() {
                 {channelOptions.map((c) => (
                   <option key={c} value={c}>
                     {CHANNEL_LABELS[c] || c}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={customerGroupFilter}
+                onChange={(e) => setCustomerGroupFilter(e.target.value)}
+                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+              >
+                <option value="ALL">All customer groups</option>
+                <option value="UNATTRIBUTED">Unattributed</option>
+                {customerGroupOptions.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
                   </option>
                 ))}
               </select>
@@ -332,7 +397,7 @@ export default function Orders() {
                       </th>
                     ))}
                     <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Items</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-32">Customer</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-40">Customer / Group</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -367,7 +432,11 @@ export default function Orders() {
                       <td className="px-6 py-4 text-sm text-slate-600 truncate" title={itemsSummary(order.id)}>
                         {itemsSummary(order.id)}
                       </td>
-                      <td className="px-6 py-4 text-sm text-slate-600 truncate">{order.customer_name || '—'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 truncate">
+                        {order.customers?.name || order.customer_groups?.name || (
+                          <span className="text-slate-400 italic">Unattributed</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -406,9 +475,56 @@ export default function Orders() {
             <DetailField label="Status" value={viewing.status} />
             <DetailField label="Total" value={`$${Number(viewing.total_amount).toFixed(2)}`} />
             <DetailField label="Date" value={new Date(viewing.created_at).toLocaleString()} />
-            <DetailField label="Customer" value={viewing.customer_name} />
-            <DetailField label="Customer Email" value={viewing.customer_email} />
+            <DetailField label="Customer (from channel)" value={viewing.customer_name} />
+            <DetailField label="Customer Email (from channel)" value={viewing.customer_email} />
             <DetailField label="Shipping Address" value={viewing.shipping_address} />
+            <div>
+              <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">
+                Attributed Customer / Group
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={viewing.customer_id || ''}
+                  disabled={assigning}
+                  onChange={async (e) => {
+                    const customerId = e.target.value;
+                    const selected = customerOptions.find((c) => c.id === customerId);
+                    const groupId = selected ? selected.customer_group_id || '' : viewing.customer_group_id || '';
+                    await assignOrderCustomer(viewing, customerId, groupId);
+                    setViewing({ ...viewing, customer_id: customerId || null, customer_group_id: groupId || null });
+                  }}
+                  className="flex-1 px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="">No specific customer</option>
+                  {customerOptions.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={viewing.customer_group_id || ''}
+                  disabled={assigning || !!viewing.customer_id}
+                  onChange={async (e) => {
+                    const groupId = e.target.value;
+                    await assignOrderCustomer(viewing, '', groupId);
+                    setViewing({ ...viewing, customer_id: null, customer_group_id: groupId || null });
+                  }}
+                  className="flex-1 px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                >
+                  <option value="">No group</option>
+                  {customerGroupOptions.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Picking a customer sets their group automatically. Clear the customer to assign at the group level
+                only (e.g. a generic Wayfair order not tied to a specific account).
+              </p>
+            </div>
             <div>
               <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Items</div>
               {(itemsByOrder[viewing.id] || []).length === 0 ? (

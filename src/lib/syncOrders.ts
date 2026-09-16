@@ -14,6 +14,35 @@ export interface SyncResult {
   errorMessage: string | null;
 }
 
+const CHANNEL_TO_GROUP_NAME: Record<string, string> = {
+  WAYFAIR: 'Wayfair',
+  WM3P: 'Walmart',
+  AMAZON3P: 'Amazon',
+};
+
+// New orders default to a customer group matching their channel name, if one
+// exists (e.g. a Wayfair order defaults to a "Wayfair" customer group) -
+// otherwise they stay unattributed/generic for manual assignment on the
+// Orders page.
+async function resolveDefaultCustomerGroupId(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: SupabaseClient<any>,
+  tenantId: string,
+  channel: string
+): Promise<string | null> {
+  const groupName = CHANNEL_TO_GROUP_NAME[channel];
+  if (!groupName) return null;
+
+  const { data } = await client
+    .from('customer_groups')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .ilike('name', groupName)
+    .maybeSingle();
+
+  return data?.id || null;
+}
+
 function emptyResult(): SyncResult {
   return {
     ordersCreated: 0,
@@ -62,6 +91,8 @@ export async function syncWayfairOrdersForTenant(client: SupabaseClient<any>, te
       if (o.channel_sku) productBySku.set(o.channel_sku.toUpperCase(), o.product_id);
     });
 
+    const defaultCustomerGroupId = await resolveDefaultCustomerGroupId(client, tenantId, 'WAYFAIR');
+
     for (const po of purchaseOrders) {
       const allCancelled = po.products.length > 0 && po.products.every((p) => p.isCancelled);
       const computedStatus = allCancelled ? 'CANCELLED' : 'PENDING';
@@ -107,6 +138,7 @@ export async function syncWayfairOrdersForTenant(client: SupabaseClient<any>, te
           channel_order_id: po.poNumber,
           customer_name: po.customerName,
           customer_email: po.customerEmail,
+          customer_group_id: defaultCustomerGroupId,
           status: computedStatus,
           total_amount: totalAmount,
           shipping_address: shippingAddress,
@@ -184,6 +216,8 @@ export async function syncWalmartOrdersForTenant(client: SupabaseClient<any>, te
       if (o.channel_sku) productBySku.set(o.channel_sku.toUpperCase(), o.product_id);
     });
 
+    const defaultCustomerGroupId = await resolveDefaultCustomerGroupId(client, tenantId, 'WM3P');
+
     for (const order of orders) {
       const lines = order.orderLines?.orderLine || [];
       const allCancelled = lines.length > 0 && lines.every((l) => isLineCancelled(l));
@@ -228,6 +262,7 @@ export async function syncWalmartOrdersForTenant(client: SupabaseClient<any>, te
           channel_order_id: order.purchaseOrderId,
           customer_name: addr?.name || null,
           customer_email: order.customerEmailId,
+          customer_group_id: defaultCustomerGroupId,
           status: computedStatus,
           total_amount: totalAmount,
           shipping_address: shippingAddress,

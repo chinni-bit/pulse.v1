@@ -1,10 +1,9 @@
 ﻿# Phase 1A Changelog
 
-What actually shipped between the Day-1 cowork session handoff and a working,
-admin-only login + dashboard, and why. Written after the fact from the real
-git history — treat this as the source of truth over the original
-`DAY_1_COMPLETION_SUMMARY.md`, which described the intended Day-1 scope
-before several of these bugs were found.
+Mirrors `docs/CHANGELOG.md` in the `pulse.v1` code repo
+(`C:\Users\chinn\Projects\nestora-pulse\pulse.v1`) — kept here too since this
+folder is the planning/reference home. If the two ever disagree, the one in
+the code repo is authoritative (it's version-controlled; this one isn't).
 
 ## Getting the Day-1 code in
 
@@ -438,6 +437,55 @@ need manual/FTP/email inventory publishing.
   matching this project's established pattern):
   `product_taxonomy_dimensions_customer_exclusivity` followed by
   `disable_rls_new_taxonomy_tables`.
+
+## Customers / Customer Groups management (2026-09-16)
+
+First round of the roadmap the owner sequenced 2026-09-15 (Customers/
+Customer Groups → Inventory page → warehouse/inventory counts → Analytics
+→ mobile app → hardening/backups). Scoped in an explicit discussion round
+before building - owner wanted real B2B account management, not just the
+minimal exclusivity-only tables from the Product page taxonomy round.
+
+- New `/customers` page — full CRUD for Customer Groups (name +
+  description) and Customers (name, group, email, phone, inventory-update
+  email, support email, address/city/state/zip/country, active status).
+  Customers deactivate-only, never deleted, same reasoning as Products -
+  orders and exclusivity rules can reference them.
+- Schema: `customer_groups` gained `description`; `customers` gained
+  `email`, `phone`, `inventory_update_email`, `support_email`, `address`,
+  `city`, `state`, `zip`, `country`, `is_active`, `updated_at`; new
+  `customer_contacts` table (a customer can have multiple named contact
+  people - name, title, email, phone); `orders` gained nullable
+  `customer_id` + `customer_group_id` for attribution (null = generic/
+  unattributed).
+- Customer detail view shows: contact info, an inline contacts manager,
+  the products exclusive to this customer or their group (reading the
+  existing `product_customer_exclusivity` table from the customer's side
+  - the reverse of the Product page's checkboxes), and an analytics
+  summary (revenue, profit, order count, top 5 products) computed
+  directly from `orders`/`order_items` - no charting library, that stays
+  with the dedicated Analytics round. Same analytics block reused at the
+  Customer Group level (rolls up member customers' orders plus any
+  ordered directly at the group level) and at a company-wide level
+  (summary strip at the top of the page).
+- Orders page: new "Customer / Group" column and filter, plus an
+  attribution picker in the order detail popup (choosing a customer
+  auto-fills their group; clearing the customer allows group-only
+  attribution for generic orders). New orders synced in from Wayfair or
+  Walmart now default to a customer group matching the channel name if
+  one exists (e.g. a "Wayfair" group), otherwise stay unattributed for
+  manual assignment - existing orders were not retroactively attributed.
+- Verified live end-to-end: created a group and a customer, added a
+  contact, set an exclusivity checkbox from the Product page and
+  confirmed it appeared on the customer's detail view, attributed a real
+  order and confirmed both the customer-level and group-level analytics
+  updated correctly, deactivated the customer. Test data cleaned up
+  after.
+- Migration applied directly via Supabase MCP (no local migration file,
+  matching this project's established pattern):
+  `customer_management_and_order_attribution` - included disabling RLS
+  on the new `customer_contacts` table as part of the same migration,
+  per the lesson from the RLS bug caught in the prior round.
 
 ## A note on this file's own history
 
