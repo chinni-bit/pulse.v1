@@ -554,6 +554,75 @@ day per owner direction:
   Unassigned Units reads 0 (was 460), and each SKU's per-warehouse
   breakdown matches the assignment above exactly.
 
+## Warehouse/inventory management, phase 1: schema + receive/assign/transfer/on-water (2026-09-16)
+
+Item 3 on the owner's roadmap. Scoped in a detailed discussion first -
+this became a genuine financial-controls module (counts, adjustments,
+an approval workflow, FIFO loss costing), not just a form, so it's being
+built in five phases: (1) schema, (2) receive/assign/transfer/on-water
+[this entry], (3) counts + worklist generator + Excel upload, (4)
+adjustments + approval + FIFO/QC, (5) loss/gain reporting.
+
+**Schema (phase 1):**
+- `inventory_batches` gained `po_number`, `vendor_name`, `status`
+  (`ON_WATER`/`RECEIVED`, existing rows default `RECEIVED`),
+  `expected_warehouse_id`, `expected_arrival_date`. Also dropped the
+  `NOT NULL` constraint on `original_landed_date` (caught live while
+  testing phase 2 - an on-the-water batch legitimately has no landed
+  date yet; fixed same round).
+- New tables: `inventory_transfers` (warehouse-to-warehouse moves, an
+  in-transit state that belongs to neither warehouse until completed),
+  `inventory_qc_holds` (inventory pulled for inspection/repair -
+  resolves to released-back or written-off, not a financial event on
+  its own), `inventory_counts` (physical count entries, per-line or
+  Excel-batch-tagged), `inventory_adjustments` +
+  `inventory_adjustment_lines` (the approval-gated gain/loss ledger with
+  FIFO cost breakdown for losses), `inventory_audit_log` (one queryable
+  trail for every write this whole module makes).
+- Approval model: any authenticated user can submit (count, adjustment,
+  receipt); only `admin`/`super_admin` role can approve - same account
+  can hold both rights, no second-person requirement. Reuses the
+  existing role field, no new permission table.
+- Five mutually-exclusive inventory buckets going forward: On-Hand (in a
+  warehouse, sellable - unchanged from before), Unassigned (received,
+  not yet placed), In Transit (moving between our warehouses), On the
+  Water (inbound from a vendor, not yet received anywhere), QC Hold
+  (temporarily unavailable pending inspection/repair). On-Hand stays the
+  default/primary total everywhere; a "Total in System" figure summing
+  all five is planned for the Inventory page in a later phase.
+
+**Receive / assign / transfer / on-water (phase 2):**
+- New `/inventory-management` page (added to nav as "Inventory Mgmt") -
+  deliberately separate from the read-only `/inventory` page, since
+  different staff view vs. operate.
+- Receive New Inventory: create a batch (product, quantity, cost/unit -
+  defaults to the product's own cost, batch number - auto-generated if
+  blank, PO#, vendor), either placed directly in a warehouse, left
+  unassigned (warehouse field is optional), or marked On the Water
+  (expected warehouse + expected arrival date, no location until
+  received).
+- Unassigned Inventory panel: assign any unassigned batch quantity to a
+  warehouse (creates or tops up a `batch_locations` row).
+- On the Water panel: admin/super_admin-gated "Receive" action - full or
+  partial receipt splits the batch into a received, warehouse-located
+  portion (carrying forward PO#/vendor/cost) and a remaining on-water
+  portion still awaiting the rest of the shipment.
+- Transfers: pick a product + source warehouse, choose from that
+  warehouse's on-hand batches, quantity, destination, optional expected
+  arrival date. Initiating immediately removes the quantity from the
+  source warehouse (shows in neither warehouse while in transit); "Mark
+  Received" lands it in the destination's `batch_locations`.
+- Every action logs to `inventory_audit_log` (event type, product,
+  warehouse, quantity/value delta, who, when).
+- Verified live end-to-end: received an unassigned batch then assigned
+  it to a warehouse; created an on-the-water batch with PO#/vendor/
+  expected-arrival, partially received it (confirmed the split - 20
+  units stayed on the water, 30 landed with full PO/vendor lineage
+  intact); initiated a transfer, confirmed the 10 units appeared in
+  neither warehouse while in transit, then completed it and confirmed
+  it landed at the destination. All test data cleaned up after; the 5
+  real batches/locations from the earlier backfill are untouched.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
