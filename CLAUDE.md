@@ -47,13 +47,35 @@ compared to local — don't take "I pushed it" at face value (this bit
 us twice earlier in the project). After a Drive upload, the create_file
 result itself confirms success; no separate check needed there.
 
+**Drive tooling limitation:** this connector cannot update an existing
+file's content — `create_file` always creates a new file (silently
+duplicating if you reuse a title), and `update_file` only changes
+metadata (title/folder), never content. To "update" a Drive mirror:
+`create_file` the new version, then `trash_file` the old one. The
+file's URL/ID changes every time as a result — acceptable for these
+private, owner-only mirrors.
+
 ## Other standing rules (see docs/decisions/002-...md for full reasoning)
 
 - **No Row Level Security, ever.** App-level `tenant_id` filtering on
-  every query is the permanent isolation model. Every new table needs
-  `ALTER TABLE ... DISABLE ROW LEVEL SECURITY;` in the same migration
-  that creates it — Supabase's migration tool defaults new tables to
-  RLS-on with zero policies, which silently blocks all access.
+  every query is the permanent isolation model. **As of 2026-09-17 the
+  event trigger that used to auto-enable RLS on every new table
+  (`ensure_rls` / `rls_auto_enable()`) has been dropped** — it was the
+  actual root cause of the "new table came out with RLS enabled" bug
+  hit repeatedly across this project. New tables should now come out
+  with RLS off by default. Adding `ALTER TABLE ... DISABLE ROW LEVEL
+  SECURITY;` to a new-table migration anyway is still harmless and
+  still recommended as a safety net, but is no longer the only thing
+  standing between a new table and getting silently locked out.
+- **Before assuming Supabase's own tooling is the cause of a weird
+  default, check for project-level event triggers/functions first**
+  (`SELECT * FROM pg_event_trigger;`). The RLS-auto-enable trigger
+  above was mistaken for a platform default for months before someone
+  actually looked.
+- Run `mcp__...__get_advisors` (security and performance) periodically
+  — it caught a real unauthenticated privilege-escalation function
+  (`create_tenant_with_admin`, since dropped) that had been sitting
+  live and callable via the anon key the whole project.
 - Channels are Amazon, Wayfair, Walmart (not Shopify, not Target —
   those were in superseded earlier plans).
 - Read `docs/decisions/002-phase1-hardening-and-phase2-plan.md` before

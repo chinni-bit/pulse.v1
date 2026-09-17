@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/authStore';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppHeader } from '@/components/AppHeader';
 import { supabase } from '@/lib/supabase';
+import { Granularity, DatePreset, DATE_PRESET_LABELS, presetRange, bucketKey, bucketLabel, startOfDay, endOfDay } from '@/lib/dateBuckets';
 
 interface Order {
   id: string;
@@ -40,18 +41,7 @@ interface CustomerGroup {
   name: string;
 }
 
-type Granularity = 'DAILY' | 'WEEKLY' | 'MONTHLY';
-type DatePreset = 'TODAY' | 'THIS_WEEK' | 'THIS_MONTH' | 'THIS_YEAR' | 'ALL_TIME' | 'CUSTOM';
 type Breakdown = 'NONE' | 'CHANNEL' | 'CUSTOMER_GROUP' | 'BRAND' | 'PRODUCT';
-
-const DATE_PRESET_LABELS: Record<DatePreset, string> = {
-  TODAY: 'Today',
-  THIS_WEEK: 'This Week',
-  THIS_MONTH: 'This Month',
-  THIS_YEAR: 'This Year',
-  ALL_TIME: 'All Time',
-  CUSTOM: 'Custom Range',
-};
 
 const CHANNEL_LABELS: Record<string, string> = {
   WAYFAIR: 'Wayfair',
@@ -60,66 +50,6 @@ const CHANNEL_LABELS: Record<string, string> = {
 };
 
 const SERIES_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#db2777'];
-
-function startOfDay(d: Date) {
-  const r = new Date(d);
-  r.setHours(0, 0, 0, 0);
-  return r;
-}
-function endOfDay(d: Date) {
-  const r = new Date(d);
-  r.setHours(23, 59, 59, 999);
-  return r;
-}
-function presetRange(preset: DatePreset): { from: Date | null; to: Date | null } {
-  const now = new Date();
-  switch (preset) {
-    case 'TODAY':
-      return { from: startOfDay(now), to: endOfDay(now) };
-    case 'THIS_WEEK': {
-      const from = new Date(now);
-      from.setDate(from.getDate() - from.getDay());
-      return { from: startOfDay(from), to: endOfDay(now) };
-    }
-    case 'THIS_MONTH':
-      return { from: startOfDay(new Date(now.getFullYear(), now.getMonth(), 1)), to: endOfDay(now) };
-    case 'THIS_YEAR':
-      return { from: startOfDay(new Date(now.getFullYear(), 0, 1)), to: endOfDay(now) };
-    case 'ALL_TIME':
-      return { from: null, to: null };
-    case 'CUSTOM':
-      return { from: null, to: null };
-  }
-}
-
-function bucketKey(date: Date, granularity: Granularity): string {
-  // Local calendar-day components throughout - the DB stores timezone-naive
-  // timestamps (no offset), so consistently treating them as local wall-clock
-  // time (not UTC via toISOString) is what keeps two genuinely different
-  // local dates from merging into one bucket.
-  const y = date.getFullYear();
-  const m = date.getMonth();
-  const d = date.getDate();
-  if (granularity === 'DAILY') {
-    return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-  }
-  if (granularity === 'WEEKLY') {
-    const weekStart = new Date(y, m, d - date.getDay());
-    return `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
-  }
-  return `${y}-${String(m + 1).padStart(2, '0')}`;
-}
-
-function bucketLabel(key: string, granularity: Granularity): string {
-  if (granularity === 'MONTHLY') {
-    const [y, m] = key.split('-');
-    return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-  }
-  const [y, m, d] = key.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  if (granularity === 'WEEKLY') return `Wk of ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 

@@ -1135,6 +1135,141 @@ round covers code and schema *structure* only, matching what was
 asked; a full data export (`pg_dump`-style) is a related but separate,
 larger task if ever wanted.
 
+## Hardening, roadmap item 6 (2026-09-17)
+
+Owner's call: go with item 6, defer password reset flow, stay on
+Vercel Hobby (no cron upgrade), make best-of-breed calls and implement.
+
+**A real, live vulnerability found and fixed - the most important
+thing in this round.** Ran Supabase's own security advisor for the
+first time this project. Two SECURITY DEFINER database functions were
+callable by anyone, unauthenticated, via `/rest/v1/rpc/...`:
+- `create_tenant_with_admin(name, slug, email, auth_id)` - created a
+  brand new tenant AND inserted a `public.users` row with
+  `role='admin'` for any caller-supplied identity, no login required.
+  A real self-service privilege-escalation path directly undermining
+  this project's "admin-created accounts only" policy - leftover from
+  an early, since-abandoned onboarding flow, confirmed unused by any
+  current app code (`grep` across `src/` found zero references) before
+  dropping it entirely.
+- `rls_auto_enable()` - turned out to be wired up as a live event
+  trigger (`ensure_rls`, firing on every `CREATE TABLE`) that silently
+  forced RLS on for every new table in the database. **This is the
+  actual root cause of the "new table came out with RLS enabled" bug
+  this project hit and had to manually patch around at least six
+  separate times** (Customers round, the taxonomy round, the
+  warehouse/inventory round, etc.) - not a Supabase platform default as
+  assumed each time, a leftover trigger from an early RLS-based design
+  that was fighting this project's own permanent architecture decision
+  on every single migration since. Dropped the trigger and the
+  function. Every future `CREATE TABLE` no longer needs the defensive
+  `DISABLE ROW LEVEL SECURITY` follow-up this project has been doing by
+  habit - though doing it explicitly anyway remains harmless and is
+  still recommended in `CLAUDE.md` as a safety net.
+- Also dropped two orphaned RLS policies (`teams_sync`, `user_permissions`)
+  left over on tables where RLS itself is disabled - dead weight that
+  only confused the security advisor.
+- **Remaining security advisor findings are expected, not bugs:** RLS
+  disabled on 40 tables is this project's permanent, deliberate
+  architecture (app-level `tenant_id` filtering); leaked-password
+  protection (HaveIBeenPwned checking) is disabled and needs a one-click
+  toggle in the Supabase dashboard (Authentication settings) - not
+  something reachable via SQL/migration, flagged for the owner rather
+  than silently left undone.
+- **Performance: added indexes on all 68 foreign-key columns that
+  lacked one** (found via direct `pg_constraint`/`pg_index`
+  introspection, cross-checked against the advisor's own count).
+  Read-only, zero behavior change, real query-plan benefit as data
+  volume grows.
+- Reviewed every `/api/*` route's auth guard by hand: all properly
+  check for a valid session, and the two admin-only routes
+  (`create-user`, `edit-user`) correctly gate on `admin`/`super_admin`
+  role with tenant scoping and last-admin protection already verified
+  in an earlier round - no gaps found here.
+
+**Automated tests - a real gap, now partially closed.** Jest and
+`@testing-library/react` were already declared in `package.json` and
+actually installed (Day-1 scaffolding), but zero test files existed
+anywhere in the project. Rather than write tests against logic that
+was still duplicated five times across the Analytics pages, extracted
+the two highest-value, highest-risk pieces of pure logic into
+`src/lib/` first, wired the real pages to use the extracted versions
+(not a parallel untested copy), then wrote real unit tests against
+them - 16 tests, all passing, verified via `npx tsc --noEmit` (clean)
+and `npx jest` (16/16):
+- `src/lib/dateBuckets.ts` - the local-calendar-day bucketing logic
+  that had already caused one real bug (UTC-vs-local mismatch, page 1
+  of the Analytics suite) and was copy-pasted verbatim into all 5
+  Analytics pages. Now lives in one place; all 5 pages import it.
+  Tests cover the exact bug class that bit this project for real
+  (two timestamps on different local days that a UTC-based bucketer
+  would merge).
+- `src/lib/fifoAllocation.ts` - the FIFO loss-costing allocation
+  algorithm from `inventory-adjustments.tsx` (which batches a Loss
+  adjustment draws from and at what cost - real financial logic).
+  Tests include a hand-checkable multi-batch spillover case (4 units at
+  $10 + 2 units at $25 = $90 total, an exact number matching what a
+  human would compute by hand, not just "a number").
+- Needed `@types/jest` and `jest-environment-jsdom` (types-only /
+  dev-only packages respectively; neither ships in Jest 28+ by
+  default) - installed, `npm audit` confirmed both added zero new
+  vulnerabilities (same 2 pre-existing Next.js/PostCSS findings as
+  before, unrelated - see below).
+- Landed-cost worksheet allocation math (the other major piece of real
+  financial logic in this app) was NOT extracted/tested this round -
+  a reasonable next candidate, left out to keep this pass within
+  budget rather than open-endedly expanding scope.
+
+**Data backup - the actual row data, not just schema.** New
+`scripts/backup-data.mjs` (no new dependency - reads `.env.local` with
+a small inline parser, uses the `@supabase/supabase-js` client already
+in the project) exports every row of every business table to local,
+gitignored, timestamped JSON files. Ran it for real: 821 rows across
+29 tables, 2026-09-17. This is manual, not scheduled (no automatic
+daily export exists - the Vercel Hobby-plan cron limitation the owner
+chose to accept applies here too) - re-run it periodically by hand.
+
+**Disaster recovery - a runbook, honestly scoped.** New
+`docs/DISASTER_RECOVERY.md` covers three loss scenarios (machine lost,
+Supabase project lost, both lost) and exactly what's backed up where.
+Explicitly does NOT claim more than what's actually been verified:
+the 17 migration files are known-accurate (pulled from Supabase's own
+migration history, not reverse-engineered) but replaying them against
+a genuinely empty database has not been tested this round; the backup
+script's export side is verified live, but there's no restore/import
+script yet, only a documented manual procedure. Recommends a Supabase
+branch dry-run as the next real validation step rather than pretending
+this is fully proven.
+
+**Load testing - tooling built, deliberately not run against
+production.** New `scripts/load-test.mjs` (no new dependency - Node's
+built-in `fetch`, plain `Promise`-based concurrency) hits a list of
+read-only pages with configurable concurrency and reports p50/p95/max
+response times. Verified working against local dev (5 concurrent x 5
+requests/route, 10/10 routes all succeeded). Deliberately not pointed
+at the production deployment - that has real cost (Supabase
+usage-based billing, Vercel function invocations) and risk
+implications that need the owner's explicit go-ahead, not a unilateral
+call.
+
+**Deferred, per explicit owner instruction this round:** password
+reset flow (UI/store hooks still exist, still unwired), and the
+Vercel Hobby-plan cron limitation (staying on Hobby, no daily-to-hourly
+upgrade). Neither touched.
+
+**Not attempted this round, worth naming rather than silently
+skipping:** Sentry/error-monitoring integration (needs a Sentry
+account + DSN key, which is the owner's to create, not something this
+session can sign up for; a lightweight in-app error log was considered
+but judged not worth a half-measure - wiring real Sentry once a DSN
+exists is a fast follow whenever wanted) and the pre-existing critical/
+high `npm audit` findings on `next`/`postcss` (a major-version Next.js
+upgrade, `next@16.3.5` - out of scope for a hardening pass without
+dedicated regression testing across the whole app; confirmed via fresh
+`npm audit` that neither new devDependency installed this round
+introduced anything new, these are the same findings flagged in every
+prior `npm audit` check this project has run).
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at

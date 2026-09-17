@@ -11,3 +11,6 @@ build/
 # Secrets / credentials references (never commit real keys/secrets)
 CREDENTIALS.md
 AUTHENTICATION_STATUS_FINAL.md
+
+# Data backups (scripts/backup-data.mjs) - real business data, never git-tracked
+backups/

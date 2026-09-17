@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/authStore';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppHeader } from '@/components/AppHeader';
 import { supabase } from '@/lib/supabase';
+import { allocateFifo } from '@/lib/fifoAllocation';
 
 interface Product {
   id: string;
@@ -215,19 +216,15 @@ export default function InventoryAdjustments() {
     const needed = Number(aQuantity);
     if (needed <= 0) return null;
     const fifo = fifoBatchesFor(aProductId, aWarehouseId);
-    const lines: { batch: Batch; quantity: number }[] = [];
-    let remaining = needed;
-    for (const b of fifo) {
-      if (remaining <= 0) break;
-      const avail = onHandAt(b.id, aWarehouseId);
-      const take = Math.min(avail, remaining);
-      if (take > 0) {
-        lines.push({ batch: b, quantity: take });
-        remaining -= take;
-      }
-    }
-    const totalValue = lines.reduce((s, l) => s + l.quantity * Number(l.batch.cost_per_unit || 0), 0);
-    return { lines, shortfall: remaining, totalValue };
+    const candidates = fifo.map((b) => ({
+      id: b.id,
+      costPerUnit: Number(b.cost_per_unit || 0),
+      availableQty: onHandAt(b.id, aWarehouseId),
+      original: b,
+    }));
+    const { lines: allocLines, shortfall, totalValue } = allocateFifo(candidates, needed);
+    const lines = allocLines.map((l) => ({ batch: l.original, quantity: l.quantity }));
+    return { lines, shortfall, totalValue };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aType, aProductId, aWarehouseId, aQuantity, batches, locations]);
 
