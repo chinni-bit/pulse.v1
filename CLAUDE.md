@@ -9,14 +9,19 @@ touches any of the three, not just when the owner explicitly asks.
 
 - **Code**: local working copy + `git push` to `origin/main` (GitHub
   Desktop, since this environment can't push directly). GitHub is the
-  real, versioned backup — don't also try to mirror the full codebase
-  into Drive as a raw file; test first, but as of 2026-09-17 pushing a
-  binary zip through the Drive MCP tool available here means base64-
-  encoding it, which tokenizes extremely inefficiently (~6 tokens per
-  character) and is impractical for anything but a trivial file size.
-  If the owner wants a Drive copy of the code, build the zip locally
-  and hand it to them directly (`SendUserFile`) to upload themselves —
-  that costs nothing and takes them seconds.
+  real, versioned backup.
+- **Hard rule (owner instruction, 2026-09-17, after this cost a large
+  chunk of a day's token budget): never upload or store a zipped,
+  compressed, or very-large file to Google Drive through this session's
+  tools — on this project or any other.** Base64-encoding a binary file
+  for the Drive `create_file` tool tokenizes extremely inefficiently
+  (~6 tokens per character) — even a small zip can cost millions of
+  tokens. If a task seems to call for a zip/binary/large file on Drive,
+  stop and ask the owner for alternate options instead of attempting it
+  — e.g. build the file locally and hand it to them via `SendUserFile`
+  so they upload it themselves in seconds at zero token cost. Plain
+  text (schema SQL, markdown docs) is unaffected by this — that's fine
+  and cheap, keep doing it.
 - **Schema**: every Supabase migration applied via the MCP tool must
   also be written out as a git-tracked file under `supabase/migrations/`
   (`<timestamp>_<name>.sql`, matching the Supabase CLI's own naming —
