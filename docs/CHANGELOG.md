@@ -1109,21 +1109,24 @@ conflicts" section). Anyone trying to rebuild the database from that
 file alone would have gotten the wrong schema entirely, not just an
 incomplete one. Replaced it with the real 17-file history.
 
-**Code and schema backed up to Google Drive.** Zipped the working tree
-(excluding `node_modules`/`.next`/`.git` - GitHub already holds full
-version history, so this is a snapshot copy, not a second history) and
-uploaded to the same Drive folder as the planning docs. The zip
-includes the now-complete `supabase/migrations/` folder, so the schema
-backup lives in both places (git-tracked file history, and inside this
-Drive snapshot) as asked.
-
-**Documents also copied to Drive as readable files, not just inside
-the zip** (the "why" document specifically requested, plus the
-changelog for the same reason - a zip isn't something you can open and
-read without extracting it first): `docs/decisions/002-phase1-
-hardening-and-phase2-plan.md` and `docs/CHANGELOG.md` both uploaded as
-their own Drive files, alongside the existing `NESTORA_PULSE_PROJECT_
-STATUS` evergreen page and the dated milestone snapshots.
+**Code and schema backed up to Google Drive.** Attempted a raw zip
+upload first; abandoned it after the base64 encoding required to
+transfer a binary file through this tool chain turned out to tokenize
+extremely inefficiently (roughly 6 tokens per base64 character), making
+a full-codebase zip prohibitively expensive to move this way. GitHub
+already is the real, versioned backup for code - that's what it's for,
+and it was already fully in place. What actually got backed up to
+Drive as genuinely useful, efficiently-transferred plain text: a
+consolidated schema file (`NESTORA_PULSE_SCHEMA_BACKUP`, all 17
+migrations concatenated and readable) and this changelog plus the
+decisions log as their own readable Drive files
+(`NESTORA_PULSE_DECISIONS_LOG`, `NESTORA_PULSE_CHANGELOG`), alongside
+the existing `NESTORA_PULSE_PROJECT_STATUS` evergreen page and the
+dated milestone snapshots. A full code zip was still built locally
+(`nestora-pulse-code-backup-2026-09-17.zip` in the scratch folder) for
+the owner to manually drop into Drive in a few seconds if they still
+want that specific redundancy, since manual upload through Drive's own
+UI doesn't have this tool's token-cost problem.
 
 **What's still NOT backed up anywhere but the live database, worth
 knowing:** the actual row data (real orders, real inventory batches,
