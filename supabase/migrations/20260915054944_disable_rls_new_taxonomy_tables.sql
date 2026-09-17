@@ -1,0 +1,4 @@
+ALTER TABLE public.finish_groups DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.customer_groups DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.customers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.product_customer_exclusivity DISABLE ROW LEVEL SECURITY;

@@ -1086,6 +1086,52 @@ schema could not be fully rebuilt from git alone. Flagged in the new
 status doc as a known item for the hardening/backups phase (roadmap
 item 6) - not fixed in this round, scope wasn't asked for.
 
+## Full three-way backup: code, schema, and docs on local + GitHub + Drive (2026-09-17)
+
+Owner's explicit ask: everything - code, database schema, and
+documentation - should be recoverable from any of three places (local
+machine, GitHub, Google Drive), not just one.
+
+**Schema backup gap (flagged 2026-09-16) fixed, not just documented
+this time.** Pulled the exact SQL text of all 17 migrations actually
+applied to the live Supabase project directly from Supabase's own
+`supabase_migrations.schema_migrations` table (which stores the raw
+statements of every migration it has ever run) and wrote each out as a
+properly named, git-tracked file under `supabase/migrations/` -
+`<timestamp>_<name>.sql`, matching the Supabase CLI's own naming
+convention. **Found something worse than "missing" while doing this:**
+the one local migration file that did exist
+(`supabase/migrations/001_initial_schema.sql`) was not a partial
+version of the current schema - it was a *different, obsolete* schema
+from the original Sept 9 plan that was explicitly superseded by the
+Sept 13 "clean restart" (see `docs/decisions/002-...md`'s "Doc
+conflicts" section). Anyone trying to rebuild the database from that
+file alone would have gotten the wrong schema entirely, not just an
+incomplete one. Replaced it with the real 17-file history.
+
+**Code and schema backed up to Google Drive.** Zipped the working tree
+(excluding `node_modules`/`.next`/`.git` - GitHub already holds full
+version history, so this is a snapshot copy, not a second history) and
+uploaded to the same Drive folder as the planning docs. The zip
+includes the now-complete `supabase/migrations/` folder, so the schema
+backup lives in both places (git-tracked file history, and inside this
+Drive snapshot) as asked.
+
+**Documents also copied to Drive as readable files, not just inside
+the zip** (the "why" document specifically requested, plus the
+changelog for the same reason - a zip isn't something you can open and
+read without extracting it first): `docs/decisions/002-phase1-
+hardening-and-phase2-plan.md` and `docs/CHANGELOG.md` both uploaded as
+their own Drive files, alongside the existing `NESTORA_PULSE_PROJECT_
+STATUS` evergreen page and the dated milestone snapshots.
+
+**What's still NOT backed up anywhere but the live database, worth
+knowing:** the actual row data (real orders, real inventory batches,
+the test-data backfills from the Analytics suite work, etc.). This
+round covers code and schema *structure* only, matching what was
+asked; a full data export (`pg_dump`-style) is a related but separate,
+larger task if ever wanted.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
