@@ -32,6 +32,9 @@ touches any of the three, not just when the owner explicitly asks.
   (`NESTORA_PULSE_CHANGELOG`, `NESTORA_PULSE_DECISIONS_LOG`) and the
   evergreen `NESTORA_PULSE_PROJECT_STATUS` page in sync too, in the
   same round as the change — not as a separate later cleanup pass.
+- **This file too.** `CLAUDE.md` itself has a Drive mirror
+  (`NESTORA_PULSE_CLAUDE_MD`) — whenever this file changes, re-upload
+  it to Drive in the same round, same as the other docs above.
 
 **Verification habit, not assumption:** after a push, confirm it
 actually landed with `git fetch` + `git log origin/main -1 --oneline`
