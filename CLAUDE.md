@@ -1,0 +1,53 @@
+# Project instructions for Claude
+
+## Three-way backup — always, not just when asked (owner rule, 2026-09-17)
+
+Code, database schema, and documentation must stay available in all
+three of: **local disk, GitHub, and Google Drive.** This is a standing
+rule, not a one-time cleanup — check it at the end of every round that
+touches any of the three, not just when the owner explicitly asks.
+
+- **Code**: local working copy + `git push` to `origin/main` (GitHub
+  Desktop, since this environment can't push directly). GitHub is the
+  real, versioned backup — don't also try to mirror the full codebase
+  into Drive as a raw file; test first, but as of 2026-09-17 pushing a
+  binary zip through the Drive MCP tool available here means base64-
+  encoding it, which tokenizes extremely inefficiently (~6 tokens per
+  character) and is impractical for anything but a trivial file size.
+  If the owner wants a Drive copy of the code, build the zip locally
+  and hand it to them directly (`SendUserFile`) to upload themselves —
+  that costs nothing and takes them seconds.
+- **Schema**: every Supabase migration applied via the MCP tool must
+  also be written out as a git-tracked file under `supabase/migrations/`
+  (`<timestamp>_<name>.sql`, matching the Supabase CLI's own naming —
+  pull the exact statements back out of `supabase_migrations
+  .schema_migrations` if a migration was applied without writing the
+  file at the time, don't reverse-engineer it from introspection).
+  Also keep `NESTORA_PULSE_SCHEMA_BACKUP` on Drive in sync — same
+  content, one consolidated readable file, updated whenever a new
+  migration lands.
+- **Docs**: `docs/CHANGELOG.md` and `docs/decisions/002-....md` are
+  git-tracked here — that's their primary home now (moved out of the
+  local-only planning folder 2026-09-16). Keep the Drive mirrors
+  (`NESTORA_PULSE_CHANGELOG`, `NESTORA_PULSE_DECISIONS_LOG`) and the
+  evergreen `NESTORA_PULSE_PROJECT_STATUS` page in sync too, in the
+  same round as the change — not as a separate later cleanup pass.
+
+**Verification habit, not assumption:** after a push, confirm it
+actually landed with `git fetch` + `git log origin/main -1 --oneline`
+compared to local — don't take "I pushed it" at face value (this bit
+us twice earlier in the project). After a Drive upload, the create_file
+result itself confirms success; no separate check needed there.
+
+## Other standing rules (see docs/decisions/002-...md for full reasoning)
+
+- **No Row Level Security, ever.** App-level `tenant_id` filtering on
+  every query is the permanent isolation model. Every new table needs
+  `ALTER TABLE ... DISABLE ROW LEVEL SECURITY;` in the same migration
+  that creates it — Supabase's migration tool defaults new tables to
+  RLS-on with zero policies, which silently blocks all access.
+- Channels are Amazon, Wayfair, Walmart (not Shopify, not Target —
+  those were in superseded earlier plans).
+- Read `docs/decisions/002-phase1-hardening-and-phase2-plan.md` before
+  assuming scope on anything — it has the full reasoning behind every
+  major call made on this project, organized by topic.
