@@ -27,6 +27,7 @@ type StatusFilter = 'ACTIVE' | 'ALL' | 'INACTIVE' | 'FUTURE';
 interface LookupOption {
   id: string;
   name: string;
+  is_active?: boolean;
 }
 
 interface Product {
@@ -191,7 +192,7 @@ export default function Products() {
   const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
   const [viewingInventory, setViewingInventory] = useState<WarehouseInventoryRow[] | null>(null);
 
-  const [finishGroups, setFinishGroups] = useState<CustomerGroup[]>([]);
+  const [finishGroups, setFinishGroups] = useState<LookupOption[]>([]);
   const [finishGroupMode, setFinishGroupMode] = useState<'select' | 'new'>('select');
   const [newFinishGroupName, setNewFinishGroupName] = useState('');
 
@@ -267,7 +268,7 @@ export default function Products() {
     if (!tenantId) return;
     const { data } = await supabase
       .from('finish_groups')
-      .select('id, name')
+      .select('id, name, is_active')
       .eq('tenant_id', tenantId)
       .order('name', { ascending: true });
     setFinishGroups(data || []);
@@ -275,7 +276,11 @@ export default function Products() {
 
   const fetchBrands = async () => {
     if (!tenantId) return;
-    const { data } = await supabase.from('brands').select('id, name').eq('tenant_id', tenantId).order('name', { ascending: true });
+    const { data } = await supabase
+      .from('brands')
+      .select('id, name, is_active')
+      .eq('tenant_id', tenantId)
+      .order('name', { ascending: true });
     setBrands(data || []);
   };
 
@@ -283,7 +288,7 @@ export default function Products() {
     if (!tenantId) return;
     const { data } = await supabase
       .from('product_types')
-      .select('id, name')
+      .select('id, name, is_active')
       .eq('tenant_id', tenantId)
       .order('name', { ascending: true });
     setProductTypes(data || []);
@@ -1041,7 +1046,9 @@ export default function Products() {
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                     >
                       <option value="">Select a brand...</option>
-                      {brands.map((b) => (
+                      {brands
+                        .filter((b) => b.is_active !== false || b.id === formData.brand_id)
+                        .map((b) => (
                         <option key={b.id} value={b.id}>
                           {b.name}
                         </option>
@@ -1186,7 +1193,9 @@ export default function Products() {
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                     >
                       <option value="">Select a product type...</option>
-                      {productTypes.map((pt) => (
+                      {productTypes
+                        .filter((pt) => pt.is_active !== false || pt.id === formData.product_type_id)
+                        .map((pt) => (
                         <option key={pt.id} value={pt.id}>
                           {pt.name}
                         </option>
@@ -1263,7 +1272,9 @@ export default function Products() {
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                     >
                       <option value="">Select a finish group...</option>
-                      {finishGroups.map((fg) => (
+                      {finishGroups
+                        .filter((fg) => fg.is_active !== false || fg.id === formData.finish_group_id)
+                        .map((fg) => (
                         <option key={fg.id} value={fg.id}>
                           {fg.name}
                         </option>

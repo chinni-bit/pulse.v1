@@ -1593,6 +1593,65 @@ reject bad data before the change was called done.
   contact address for support tickets, not a workflow method, a
   different concept from the 5 new fields.
 
+## Lookup tables made deactivate-only; deactivated items excluded from new-entry pickers (2026-09-19)
+
+Owner request: `customer_groups`, `product_types`, `brands`, and (by
+extension, flagged rather than silently assumed) `finish_groups` should
+follow the same deactivate-only pattern already used by `products`,
+`warehouses`, `customers`, and `tenants` - no hard delete, ever - and a
+deactivated entry must stop appearing as a choice for brand-new records
+while anything already linked to it keeps working and displaying
+correctly. The owner's own example: deactivating brand "Suite Bebe"
+should remove it from the Add Product brand dropdown, but existing
+products already on Suite Bebe stay exactly as they are. Implemented in
+`supabase/migrations/20260919170000_lookup_tables_deactivate_not_delete.sql`.
+`npx tsc --noEmit` clean; live-verified end to end by deactivating a real
+brand (Baby Cache) via direct SQL, confirming it disappeared from the Add
+Product brand dropdown, confirming an existing product already linked to
+it still showed "Baby Cache" correctly on both its detail view and its
+Edit form's dropdown (with the rest of the active brand list intact
+alongside it), then reactivating it to restore the original state.
+
+- **`is_active boolean NOT NULL DEFAULT true`** added to all 4 tables.
+- **`/admin/product-types.tsx` and `/admin/customer-groups.tsx` rewritten**:
+  the old hard-`handleDelete` (which blocked deletion only if the row was
+  currently in use) replaced with an unconditional `toggleActive`
+  deactivate/reactivate action, a "Show deactivated" checkbox filter, and
+  a Status column - matching the reference pattern `warehouses.tsx`
+  already used.
+- **`/admin/brands.tsx` created from scratch** - brands had no dedicated
+  management page at all before this round, only inline-add from inside
+  the Products form. Same CRUD/deactivate pattern as the other 3 pages,
+  with a product-usage count column.
+- **`/admin/finish-groups.tsx` created from scratch** - same reasoning
+  and pattern as brands; `finish_groups` was likewise never given its own
+  page.
+- **Settings dropdown** gained "Brands" and "Finish Groups" (now 8 links
+  total: Users, Warehouses, Brands, Product Types, Finish Groups,
+  Customer Groups, Integrations, Tenant Info).
+- **The actual FK-exclusion logic** (the core of the request) landed in
+  `products.tsx` (Brand, Product Type, and Finish Group dropdowns in the
+  Add/Edit Product form) and `customers.tsx` (Customer Group dropdown in
+  the Add/Edit Customer form): each dropdown now filters its option list
+  to `is_active !== false || id === the record's own current value` -
+  active items are always selectable, and an inactive item that's already
+  linked to the record being edited still renders (so existing links
+  never silently break or show blank), while a fresh record can never
+  newly select it. `countries` intentionally excluded (no `is_active`
+  column exists for it - not part of this round's 4 named tables), so its
+  dropdown option type (`is_active?: boolean`, optional) tolerates that
+  gap without a type error.
+- **Verified already-compliant, no change needed**: `tenants` has no
+  delete UI anywhere in the app; `warehouses` dropdowns used for new
+  inventory entries already filtered to `is_active` before this round
+  (the original reference implementation this pattern was copied from).
+- **Deliberately left untouched**: the inline customer-group-management
+  chip UI inside `customers.tsx` itself (quick add/rename only, no delete
+  button there to begin with, so nothing to close off) and the product
+  exclusivity checkbox list on the Products detail view (a settings
+  surface that lists every group for exclusion purposes, not a "pick one
+  for a new record" FK picker) - out of scope for this specific request.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at

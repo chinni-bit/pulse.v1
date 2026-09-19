@@ -7,19 +7,19 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppHeader } from '@/components/AppHeader';
 import { supabase } from '@/lib/supabase';
 
-const MAX_NAME_LENGTH = 60;
+const MAX_NAME_LENGTH = 100;
 
-interface ProductType {
+interface Brand {
   id: string;
   name: string;
   is_active: boolean;
   product_count: number;
 }
 
-export default function ProductTypes() {
+export default function Brands() {
   const { tenantId, user } = useAuthStore();
 
-  const [productTypes, setProductTypes] = useState<ProductType[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState('');
   const [showInactive, setShowInactive] = useState(false);
@@ -33,14 +33,14 @@ export default function ProductTypes() {
   const [editError, setEditError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const fetchProductTypes = async () => {
+  const fetchBrands = async () => {
     if (!tenantId) return;
     setLoading(true);
     setListError('');
 
-    const [{ data: typesData, error }, { data: productsData }] = await Promise.all([
-      supabase.from('product_types').select('id, name, is_active').eq('tenant_id', tenantId).order('name', { ascending: true }),
-      supabase.from('products').select('product_type_id').eq('tenant_id', tenantId).not('product_type_id', 'is', null),
+    const [{ data: brandsData, error }, { data: productsData }] = await Promise.all([
+      supabase.from('brands').select('id, name, is_active').eq('tenant_id', tenantId).order('name', { ascending: true }),
+      supabase.from('products').select('brand_id').eq('tenant_id', tenantId).not('brand_id', 'is', null),
     ]);
 
     if (error) {
@@ -51,15 +51,15 @@ export default function ProductTypes() {
 
     const counts = new Map<string, number>();
     (productsData || []).forEach((p) => {
-      if (p.product_type_id) counts.set(p.product_type_id, (counts.get(p.product_type_id) || 0) + 1);
+      if (p.brand_id) counts.set(p.brand_id, (counts.get(p.brand_id) || 0) + 1);
     });
 
-    setProductTypes((typesData || []).map((t) => ({ ...t, product_count: counts.get(t.id) || 0 })));
+    setBrands((brandsData || []).map((b) => ({ ...b, product_count: counts.get(b.id) || 0 })));
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchProductTypes();
+    fetchBrands();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
@@ -80,7 +80,7 @@ export default function ProductTypes() {
     setAdding(true);
     setAddError('');
 
-    const { error } = await supabase.from('product_types').insert({ tenant_id: tenantId, name, created_by: user?.id || null });
+    const { error } = await supabase.from('brands').insert({ tenant_id: tenantId, name, created_by: user?.id || null });
 
     setAdding(false);
 
@@ -90,12 +90,12 @@ export default function ProductTypes() {
     }
 
     setNewName('');
-    fetchProductTypes();
+    fetchBrands();
   };
 
-  const openEdit = (t: ProductType) => {
-    setEditingId(t.id);
-    setEditName(t.name);
+  const openEdit = (b: Brand) => {
+    setEditingId(b.id);
+    setEditName(b.name);
     setEditError('');
   };
 
@@ -110,7 +110,7 @@ export default function ProductTypes() {
     setSaving(true);
     setEditError('');
 
-    const { error } = await supabase.from('product_types').update({ name }).eq('id', id);
+    const { error } = await supabase.from('brands').update({ name }).eq('id', id);
 
     setSaving(false);
 
@@ -120,48 +120,48 @@ export default function ProductTypes() {
     }
 
     setEditingId(null);
-    fetchProductTypes();
+    fetchBrands();
   };
 
-  const toggleActive = async (t: ProductType) => {
-    const nextActive = !t.is_active;
+  const toggleActive = async (b: Brand) => {
+    const nextActive = !b.is_active;
     if (
       !window.confirm(
         nextActive
-          ? `Reactivate product type "${t.name}"?`
-          : `Deactivate product type "${t.name}"? It'll no longer be selectable for new products, but the ${t.product_count} product(s) already using it stay linked to it.`
+          ? `Reactivate brand "${b.name}"?`
+          : `Deactivate brand "${b.name}"? It'll no longer be selectable for new products, but the ${b.product_count} product(s) already using it stay linked to it.`
       )
     ) {
       return;
     }
 
-    const { error } = await supabase.from('product_types').update({ is_active: nextActive }).eq('id', t.id);
+    const { error } = await supabase.from('brands').update({ is_active: nextActive }).eq('id', b.id);
 
     if (error) {
       setListError(error.message);
       return;
     }
 
-    fetchProductTypes();
+    fetchBrands();
   };
 
-  const visibleTypes = showInactive ? productTypes : productTypes.filter((t) => t.is_active);
+  const visibleBrands = showInactive ? brands : brands.filter((b) => b.is_active);
 
   return (
     <ProtectedRoute>
       <Head>
-        <title>Product Types - Nestora Pulse</title>
+        <title>Brands - Nestora Pulse</title>
       </Head>
 
       <main className="min-h-screen bg-slate-50">
-        <AppHeader title="Product Types" />
+        <AppHeader title="Brands" />
 
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex flex-wrap items-center gap-4 mb-4">
             <p className="text-slate-600 text-sm">
-              {visibleTypes.length} product type{visibleTypes.length === 1 ? '' : 's'} - used to categorize
-              products (e.g. Crib, Dresser, Desk) on the Products page. Deactivating one removes it from new
-              products' options without touching products already using it.
+              {visibleBrands.length} brand{visibleBrands.length === 1 ? '' : 's'} - the 6 Nestora sub-brands and
+              any others used on the Products page. Deactivating one removes it from new products' options
+              without touching products already using it.
             </p>
             <label className="flex items-center gap-1.5 text-sm text-slate-600 whitespace-nowrap">
               <input
@@ -185,7 +185,7 @@ export default function ProductTypes() {
                 onChange={(e) => setNewName(e.target.value)}
                 disabled={adding}
                 maxLength={MAX_NAME_LENGTH}
-                placeholder="e.g. Crib, Dresser, Desk"
+                placeholder="e.g. Suite Bebe"
                 className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
               />
               <button
@@ -206,10 +206,10 @@ export default function ProductTypes() {
             {loading ? (
               <div className="text-center py-12">
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                <p className="mt-4 text-slate-600">Loading product types...</p>
+                <p className="mt-4 text-slate-600">Loading brands...</p>
               </div>
-            ) : visibleTypes.length === 0 ? (
-              <div className="text-center py-12 text-slate-500">No product types yet. Add your first one above.</div>
+            ) : visibleBrands.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">No brands yet. Add your first one above.</div>
             ) : (
               <table className="min-w-full">
                 <thead className="bg-slate-50 border-b border-slate-200">
@@ -221,12 +221,12 @@ export default function ProductTypes() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {visibleTypes.map((t) =>
-                    editingId === t.id ? (
-                      <tr key={t.id} className="bg-slate-50">
+                  {visibleBrands.map((b) =>
+                    editingId === b.id ? (
+                      <tr key={b.id} className="bg-slate-50">
                         <td className="px-6 py-3" colSpan={4}>
                           {editError && <p className="text-red-700 text-sm mb-2">{editError}</p>}
-                          <form onSubmit={(e) => handleEditSave(e, t.id)} className="flex gap-2">
+                          <form onSubmit={(e) => handleEditSave(e, b.id)} className="flex gap-2">
                             <input
                               type="text"
                               value={editName}
@@ -255,29 +255,29 @@ export default function ProductTypes() {
                         </td>
                       </tr>
                     ) : (
-                      <tr key={t.id} className="hover:bg-slate-50">
-                        <td className="px-6 py-3 text-sm text-slate-900 font-medium">{t.name}</td>
-                        <td className="px-6 py-3 text-sm text-slate-600">{t.product_count}</td>
+                      <tr key={b.id} className="hover:bg-slate-50">
+                        <td className="px-6 py-3 text-sm text-slate-900 font-medium">{b.name}</td>
+                        <td className="px-6 py-3 text-sm text-slate-600">{b.product_count}</td>
                         <td className="px-6 py-3 text-sm">
                           <span
                             className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              t.is_active ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
+                              b.is_active ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
                             }`}
                           >
-                            {t.is_active ? 'Active' : 'Inactive'}
+                            {b.is_active ? 'Active' : 'Inactive'}
                           </span>
                         </td>
                         <td className="px-6 py-3 text-sm text-right space-x-3">
-                          <button onClick={() => openEdit(t)} className="text-blue-600 hover:underline font-medium">
+                          <button onClick={() => openEdit(b)} className="text-blue-600 hover:underline font-medium">
                             Rename
                           </button>
                           <button
-                            onClick={() => toggleActive(t)}
+                            onClick={() => toggleActive(b)}
                             className={`hover:underline font-medium ${
-                              t.is_active ? 'text-red-600' : 'text-green-700'
+                              b.is_active ? 'text-red-600' : 'text-green-700'
                             }`}
                           >
-                            {t.is_active ? 'Deactivate' : 'Activate'}
+                            {b.is_active ? 'Deactivate' : 'Activate'}
                           </button>
                         </td>
                       </tr>

@@ -570,6 +570,58 @@ pushed back that this was unnecessary complexity for a project still in
 its early phase, and preferred one universal `customers` ledger with
 simple per-customer capability flags for "does this need automated
 inventory sync, does it need orders imported automatically," etc.
+
+## Standing rule: lookup tables are deactivate-only and can't be newly selected once deactivated (2026-09-19)
+
+**The decision:** every table that a product, customer, or other
+record can point to by foreign key — `brands`, `product_types`,
+`finish_groups`, `customer_groups`, and (already the case before this)
+`products`, `warehouses`, `customers`, `tenants` — never gets a hard
+delete from the UI. Retiring an entry means flipping `is_active` to
+`false`, never `DELETE FROM`. This was already the pattern for the
+4 "big" entity tables; this round extended it to the 4 smaller lookup/
+taxonomy tables that had been hard-delete (or had no delete UI at all
+yet, in `brands`' case) up to this point.
+
+**Why:** a hard delete on a lookup table is a landmine for historical
+data — every existing product/customer/order row that references the
+deleted id either breaks its FK, or (if the FK is nullable and nothing
+enforces otherwise) silently loses the link and starts rendering blank.
+Nestora's real-world pattern is closer to "retire a brand from active
+use" than "this brand never existed" — Suite Bebe might stop taking new
+products under it, but every historical Suite Bebe product, order, and
+report still needs the label. Deactivate-only makes that distinction
+explicit and permanent, and matches how the owner already thinks about
+retiring a warehouse or a customer.
+
+**The second half, which is the part that actually required new code:**
+deactivating an entry must remove it from the pool of choices for a
+*brand-new* record, without touching anything already linked to it. The
+owner's own worked example: deactivate brand "Suite Bebe," and the Add
+Product form's brand dropdown should no longer offer it, but every
+product already on Suite Bebe keeps showing "Suite Bebe" exactly as
+before, on both its read-only detail view and its own Edit form (editing
+that product doesn't force a brand change just because the brand is
+now inactive). The implementation pattern chosen: each dropdown's option
+list is the active set *plus* whatever value the record being edited
+already holds — so "new" and "edit" share one filter expression, with no
+separate code path needed for the two cases. This same shape (active-set
+∪ current-value) is the template for any future FK dropdown added to
+this app that points at a deactivate-only table — the alternative (a
+hard block that requires "in use" checks before allowing delete) was
+the *old* pattern, explicitly replaced by this one because it still let
+a lookup vanish entirely for rows that referenced it, it only blocked
+the delete while anything was still using it, which is weaker than
+never allowing the delete at all.
+
+**What this round deliberately did not touch:** `countries` — tenant-
+scoped as of the prior round, but not one of the 4 tables the owner
+named this time, so no `is_active` column was added and its dropdown
+still shows the full list unfiltered. If `countries` needs the same
+treatment later, it's a small, isolated follow-up (the dropdown-option
+type used across these pages already tolerates a table with no
+`is_active` column, by design, so adding it later won't require
+touching every consumer again).
 Landed on:
 
 - **`customers` is the one universal ledger** of everyone Nestora sells

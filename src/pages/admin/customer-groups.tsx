@@ -14,6 +14,7 @@ interface CustomerGroup {
   id: string;
   name: string;
   description: string | null;
+  is_active: boolean;
   customer_count: number;
 }
 
@@ -23,6 +24,7 @@ export default function CustomerGroups() {
   const [groups, setGroups] = useState<CustomerGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
 
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
@@ -41,7 +43,7 @@ export default function CustomerGroups() {
     setListError('');
 
     const [{ data: groupsData, error }, { data: customersData }] = await Promise.all([
-      supabase.from('customer_groups').select('id, name, description').eq('tenant_id', tenantId).order('name', { ascending: true }),
+      supabase.from('customer_groups').select('id, name, description, is_active').eq('tenant_id', tenantId).order('name', { ascending: true }),
       supabase.from('customers').select('customer_group_id').eq('tenant_id', tenantId).not('customer_group_id', 'is', null),
     ]);
 
@@ -132,19 +134,19 @@ export default function CustomerGroups() {
     fetchGroups();
   };
 
-  const handleDelete = async (g: CustomerGroup) => {
-    if (g.customer_count > 0) {
-      window.alert(
-        `"${g.name}" is used by ${g.customer_count} customer${g.customer_count === 1 ? '' : 's'} - reassign ${
-          g.customer_count === 1 ? 'it' : 'them'
-        } to a different group before deleting this one.`
-      );
+  const toggleActive = async (g: CustomerGroup) => {
+    const nextActive = !g.is_active;
+    if (
+      !window.confirm(
+        nextActive
+          ? `Reactivate customer group "${g.name}"?`
+          : `Deactivate customer group "${g.name}"? It'll no longer be selectable for new customers, but the ${g.customer_count} customer(s) already in it stay assigned to it.`
+      )
+    ) {
       return;
     }
 
-    if (!window.confirm(`Delete customer group "${g.name}"? This can't be undone.`)) return;
-
-    const { error } = await supabase.from('customer_groups').delete().eq('id', g.id);
+    const { error } = await supabase.from('customer_groups').update({ is_active: nextActive }).eq('id', g.id);
 
     if (error) {
       setListError(error.message);
@@ -153,6 +155,8 @@ export default function CustomerGroups() {
 
     fetchGroups();
   };
+
+  const visibleGroups = showInactive ? groups : groups.filter((g) => g.is_active);
 
   return (
     <ProtectedRoute>
@@ -164,11 +168,22 @@ export default function CustomerGroups() {
         <AppHeader title="Customer Groups" />
 
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <p className="text-slate-600 text-sm mb-4">
-            {groups.length} customer group{groups.length === 1 ? '' : 's'} - categorizes everyone Nestora sells
-            to (marketplaces, big-box retailers, resellers, independent stores, etc.) for reporting and
-            product exclusivity.
-          </p>
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            <p className="text-slate-600 text-sm">
+              {visibleGroups.length} customer group{visibleGroups.length === 1 ? '' : 's'} - categorizes
+              everyone Nestora sells to (marketplaces, big-box retailers, resellers, independent stores, etc.)
+              for reporting and product exclusivity.
+            </p>
+            <label className="flex items-center gap-1.5 text-sm text-slate-600 whitespace-nowrap">
+              <input
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+                className="rounded border-slate-300"
+              />
+              Show deactivated
+            </label>
+          </div>
 
           <div className="bg-white rounded-lg shadow p-4 mb-6">
             {addError && (
@@ -213,7 +228,7 @@ export default function CustomerGroups() {
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <p className="mt-4 text-slate-600">Loading customer groups...</p>
               </div>
-            ) : groups.length === 0 ? (
+            ) : visibleGroups.length === 0 ? (
               <div className="text-center py-12 text-slate-500">No customer groups yet. Add your first one above.</div>
             ) : (
               <table className="min-w-full">
@@ -221,15 +236,16 @@ export default function CustomerGroups() {
                   <tr>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Name</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Description</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-28">Customers</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-24">Customers</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-24">Status</th>
                     <th className="px-6 py-3 text-right text-sm font-semibold text-slate-900 w-40">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {groups.map((g) =>
+                  {visibleGroups.map((g) =>
                     editingId === g.id ? (
                       <tr key={g.id} className="bg-slate-50">
-                        <td className="px-6 py-3" colSpan={4}>
+                        <td className="px-6 py-3" colSpan={5}>
                           {editError && <p className="text-red-700 text-sm mb-2">{editError}</p>}
                           <form onSubmit={(e) => handleEditSave(e, g.id)} className="flex flex-wrap gap-2">
                             <input
@@ -273,15 +289,26 @@ export default function CustomerGroups() {
                         <td className="px-6 py-3 text-sm text-slate-900 font-medium">{g.name}</td>
                         <td className="px-6 py-3 text-sm text-slate-600">{g.description || '—'}</td>
                         <td className="px-6 py-3 text-sm text-slate-600">{g.customer_count}</td>
+                        <td className="px-6 py-3 text-sm">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                              g.is_active ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {g.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
                         <td className="px-6 py-3 text-sm text-right space-x-3">
                           <button onClick={() => openEdit(g)} className="text-blue-600 hover:underline font-medium">
                             Edit
                           </button>
                           <button
-                            onClick={() => handleDelete(g)}
-                            className="text-red-600 hover:underline font-medium"
+                            onClick={() => toggleActive(g)}
+                            className={`hover:underline font-medium ${
+                              g.is_active ? 'text-red-600' : 'text-green-700'
+                            }`}
                           >
-                            Delete
+                            {g.is_active ? 'Deactivate' : 'Activate'}
                           </button>
                         </td>
                       </tr>

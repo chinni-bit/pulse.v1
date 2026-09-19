@@ -12,6 +12,7 @@ interface CustomerGroup {
   id: string;
   name: string;
   description: string | null;
+  is_active?: boolean;
 }
 
 const CAPABILITY_METHODS = ['NONE', 'EMAIL', 'FTP', 'API', 'PORTAL', 'EDI', 'MANUAL'] as const;
@@ -249,7 +250,7 @@ export default function Customers() {
     if (!tenantId) return;
     const { data } = await supabase
       .from('customer_groups')
-      .select('id, name, description')
+      .select('id, name, description, is_active')
       .eq('tenant_id', tenantId)
       .order('name', { ascending: true });
     setCustomerGroups(data || []);
@@ -810,11 +811,13 @@ export default function Customers() {
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                   >
                     <option value="">No group</option>
-                    {customerGroups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name}
-                      </option>
-                    ))}
+                    {customerGroups
+                      .filter((g) => g.is_active !== false || g.id === formData.customer_group_id)
+                      .map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
                   </select>
                 </div>
 

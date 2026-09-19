@@ -26,7 +26,9 @@ const NAV_LINKS = [
 const SETTINGS_LINKS = [
   { href: '/admin/users', label: 'Users' },
   { href: '/warehouses', label: 'Warehouses' },
+  { href: '/admin/brands', label: 'Brands' },
   { href: '/admin/product-types', label: 'Product Types' },
+  { href: '/admin/finish-groups', label: 'Finish Groups' },
   { href: '/admin/customer-groups', label: 'Customer Groups' },
   { href: '/admin/customer-integrations', label: 'Integrations' },
   { href: '/admin/tenant-info', label: 'Tenant Info' },
