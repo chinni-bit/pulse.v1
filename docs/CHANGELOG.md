@@ -1562,6 +1562,37 @@ everything else that was confirmed, so left for a dedicated round rather
 than assumed. `product_mappings.channel` also intentionally untouched -
 already covered in the entry above from the prior round explaining why.
 
+## Customer capability fields (2026-09-19)
+
+Built the piece deferred from the last round: how each customer actually
+communicates with Nestora for 5 workflows, not just whether they do.
+Implemented in `supabase/migrations/20260919160000_customer_capability_fields.sql`.
+`npx tsc --noEmit` clean; verified live in the browser (Customers page's
+Add form renders the full Capabilities section with all 5 method
+dropdowns) plus a real end-to-end save confirmed via direct SQL query
+(method `EMAIL` + a real address saved and round-tripped correctly, the
+other 4 correctly defaulted to `NONE`) and both new `CHECK` constraint
+types (bad method value, over-length details) confirmed to actually
+reject bad data before the change was called done.
+
+- **5 method+details pairs added to `customers`**: `inventory_feed`,
+  `order_import`, `shipping_tracking`, `invoicing`, `cancellation` - each
+  a `_method` column (`API`/`EMAIL`/`FTP`/`PORTAL`/`EDI`/`MANUAL`/`NONE`,
+  same controlled vocabulary across all 5 for one reusable UI control) and
+  a free-text `_details` column (≤300 chars) for the specifics - an email
+  address, an FTP path, which integration, or just a note.
+- **Dropped `inventory_update_email`** - it only captured "email address
+  for inventory updates" with no method concept at all, fully superseded
+  by `inventory_feed_method`/`inventory_feed_details` (method=`EMAIL`,
+  details=that same address). Zero customers existed yet, so zero data
+  was at risk in the drop.
+- **`customers.tsx`** got a new "Capabilities" section in the Add/Edit
+  form (5 rows, method dropdown + details text each) and a matching
+  summary block in the detail view, replacing the old single
+  "Inventory Update Email" field. `support_email` was left alone - it's a
+  contact address for support tickets, not a workflow method, a
+  different concept from the 5 new fields.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at

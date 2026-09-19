@@ -14,6 +14,17 @@ interface CustomerGroup {
   description: string | null;
 }
 
+const CAPABILITY_METHODS = ['NONE', 'EMAIL', 'FTP', 'API', 'PORTAL', 'EDI', 'MANUAL'] as const;
+const METHOD_LABELS: Record<string, string> = {
+  NONE: 'None',
+  EMAIL: 'Email',
+  FTP: 'FTP',
+  API: 'API',
+  PORTAL: 'Portal',
+  EDI: 'EDI',
+  MANUAL: 'Manual',
+};
+
 interface Customer {
   id: string;
   name: string;
@@ -21,7 +32,6 @@ interface Customer {
   customer_groups: { name: string } | null;
   email: string | null;
   phone: string | null;
-  inventory_update_email: string | null;
   support_email: string | null;
   address: string | null;
   city: string | null;
@@ -29,6 +39,16 @@ interface Customer {
   zip: string | null;
   country: string | null;
   is_active: boolean;
+  inventory_feed_method: string;
+  inventory_feed_details: string | null;
+  order_import_method: string;
+  order_import_details: string | null;
+  shipping_tracking_method: string;
+  shipping_tracking_details: string | null;
+  invoicing_method: string;
+  invoicing_details: string | null;
+  cancellation_method: string;
+  cancellation_details: string | null;
 }
 
 interface CustomerFormData {
@@ -36,13 +56,22 @@ interface CustomerFormData {
   customer_group_id: string;
   email: string;
   phone: string;
-  inventory_update_email: string;
   support_email: string;
   address: string;
   city: string;
   state: string;
   zip: string;
   country: string;
+  inventory_feed_method: string;
+  inventory_feed_details: string;
+  order_import_method: string;
+  order_import_details: string;
+  shipping_tracking_method: string;
+  shipping_tracking_details: string;
+  invoicing_method: string;
+  invoicing_details: string;
+  cancellation_method: string;
+  cancellation_details: string;
 }
 
 const EMPTY_FORM: CustomerFormData = {
@@ -50,13 +79,22 @@ const EMPTY_FORM: CustomerFormData = {
   customer_group_id: '',
   email: '',
   phone: '',
-  inventory_update_email: '',
   support_email: '',
   address: '',
   city: '',
   state: '',
   zip: '',
   country: '',
+  inventory_feed_method: 'NONE',
+  inventory_feed_details: '',
+  order_import_method: 'NONE',
+  order_import_details: '',
+  shipping_tracking_method: 'NONE',
+  shipping_tracking_details: '',
+  invoicing_method: 'NONE',
+  invoicing_details: '',
+  cancellation_method: 'NONE',
+  cancellation_details: '',
 };
 
 interface CustomerContact {
@@ -225,7 +263,7 @@ export default function Customers() {
     const { data, error } = await supabase
       .from('customers')
       .select(
-        'id, name, customer_group_id, customer_groups(name), email, phone, inventory_update_email, support_email, address, city, state, zip, country, is_active'
+        'id, name, customer_group_id, customer_groups(name), email, phone, support_email, address, city, state, zip, country, is_active, inventory_feed_method, inventory_feed_details, order_import_method, order_import_details, shipping_tracking_method, shipping_tracking_details, invoicing_method, invoicing_details, cancellation_method, cancellation_details'
       )
       .eq('tenant_id', tenantId)
       .order('name', { ascending: true });
@@ -271,13 +309,22 @@ export default function Customers() {
       customer_group_id: customer.customer_group_id || '',
       email: customer.email || '',
       phone: customer.phone || '',
-      inventory_update_email: customer.inventory_update_email || '',
       support_email: customer.support_email || '',
       address: customer.address || '',
       city: customer.city || '',
       state: customer.state || '',
       zip: customer.zip || '',
       country: customer.country || '',
+      inventory_feed_method: customer.inventory_feed_method,
+      inventory_feed_details: customer.inventory_feed_details || '',
+      order_import_method: customer.order_import_method,
+      order_import_details: customer.order_import_details || '',
+      shipping_tracking_method: customer.shipping_tracking_method,
+      shipping_tracking_details: customer.shipping_tracking_details || '',
+      invoicing_method: customer.invoicing_method,
+      invoicing_details: customer.invoicing_details || '',
+      cancellation_method: customer.cancellation_method,
+      cancellation_details: customer.cancellation_details || '',
     });
     setFormError('');
     setShowForm(true);
@@ -306,13 +353,22 @@ export default function Customers() {
       customer_group_id: formData.customer_group_id || null,
       email: formData.email.trim() || null,
       phone: formData.phone.trim() || null,
-      inventory_update_email: formData.inventory_update_email.trim() || null,
       support_email: formData.support_email.trim() || null,
       address: formData.address.trim() || null,
       city: formData.city.trim() || null,
       state: formData.state.trim() || null,
       zip: formData.zip.trim() || null,
       country: formData.country.trim() || null,
+      inventory_feed_method: formData.inventory_feed_method,
+      inventory_feed_details: formData.inventory_feed_details.trim() || null,
+      order_import_method: formData.order_import_method,
+      order_import_details: formData.order_import_details.trim() || null,
+      shipping_tracking_method: formData.shipping_tracking_method,
+      shipping_tracking_details: formData.shipping_tracking_details.trim() || null,
+      invoicing_method: formData.invoicing_method,
+      invoicing_details: formData.invoicing_details.trim() || null,
+      cancellation_method: formData.cancellation_method,
+      cancellation_details: formData.cancellation_details.trim() || null,
     };
 
     const { error } = editingId
@@ -785,18 +841,6 @@ export default function Customers() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Inventory Update Email</label>
-                  <input
-                    type="email"
-                    value={formData.inventory_update_email}
-                    onChange={(e) => setFormData({ ...formData, inventory_update_email: e.target.value })}
-                    disabled={saving}
-                    placeholder="Where to send stock/inventory updates"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
-                  />
-                </div>
-
-                <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Support Email</label>
                   <input
                     type="email"
@@ -861,6 +905,140 @@ export default function Customers() {
                       disabled={saving}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                     />
+                  </div>
+                </div>
+
+                <div className="md:col-span-2 border-t border-slate-200 pt-4 mt-1">
+                  <h3 className="text-sm font-semibold text-slate-900 mb-1">Capabilities</h3>
+                  <p className="text-xs text-slate-500 mb-3">
+                    How this customer actually communicates with Nestora for each of these - pick a method, and
+                    add specifics (an email address, an FTP path, which integration, etc.) if it helps.
+                  </p>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-start">
+                      <label className="text-sm font-medium text-slate-700 sm:pt-2">Inventory Feed</label>
+                      <select
+                        value={formData.inventory_feed_method}
+                        onChange={(e) => setFormData({ ...formData, inventory_feed_method: e.target.value })}
+                        disabled={saving}
+                        className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      >
+                        {CAPABILITY_METHODS.map((m) => (
+                          <option key={m} value={m}>
+                            {METHOD_LABELS[m]}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={formData.inventory_feed_details}
+                        onChange={(e) => setFormData({ ...formData, inventory_feed_details: e.target.value })}
+                        disabled={saving}
+                        maxLength={300}
+                        placeholder="Details (email, FTP path, notes...)"
+                        className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-start">
+                      <label className="text-sm font-medium text-slate-700 sm:pt-2">Order Import</label>
+                      <select
+                        value={formData.order_import_method}
+                        onChange={(e) => setFormData({ ...formData, order_import_method: e.target.value })}
+                        disabled={saving}
+                        className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      >
+                        {CAPABILITY_METHODS.map((m) => (
+                          <option key={m} value={m}>
+                            {METHOD_LABELS[m]}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={formData.order_import_details}
+                        onChange={(e) => setFormData({ ...formData, order_import_details: e.target.value })}
+                        disabled={saving}
+                        maxLength={300}
+                        placeholder="Details (email, FTP path, notes...)"
+                        className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-start">
+                      <label className="text-sm font-medium text-slate-700 sm:pt-2">Shipping / Tracking</label>
+                      <select
+                        value={formData.shipping_tracking_method}
+                        onChange={(e) => setFormData({ ...formData, shipping_tracking_method: e.target.value })}
+                        disabled={saving}
+                        className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      >
+                        {CAPABILITY_METHODS.map((m) => (
+                          <option key={m} value={m}>
+                            {METHOD_LABELS[m]}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={formData.shipping_tracking_details}
+                        onChange={(e) => setFormData({ ...formData, shipping_tracking_details: e.target.value })}
+                        disabled={saving}
+                        maxLength={300}
+                        placeholder="Details (email, portal, notes...)"
+                        className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-start">
+                      <label className="text-sm font-medium text-slate-700 sm:pt-2">Invoicing</label>
+                      <select
+                        value={formData.invoicing_method}
+                        onChange={(e) => setFormData({ ...formData, invoicing_method: e.target.value })}
+                        disabled={saving}
+                        className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      >
+                        {CAPABILITY_METHODS.map((m) => (
+                          <option key={m} value={m}>
+                            {METHOD_LABELS[m]}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={formData.invoicing_details}
+                        onChange={(e) => setFormData({ ...formData, invoicing_details: e.target.value })}
+                        disabled={saving}
+                        maxLength={300}
+                        placeholder="Details (email, portal, notes...)"
+                        className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-start">
+                      <label className="text-sm font-medium text-slate-700 sm:pt-2">Cancellations</label>
+                      <select
+                        value={formData.cancellation_method}
+                        onChange={(e) => setFormData({ ...formData, cancellation_method: e.target.value })}
+                        disabled={saving}
+                        className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      >
+                        {CAPABILITY_METHODS.map((m) => (
+                          <option key={m} value={m}>
+                            {METHOD_LABELS[m]}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={formData.cancellation_details}
+                        onChange={(e) => setFormData({ ...formData, cancellation_details: e.target.value })}
+                        disabled={saving}
+                        maxLength={300}
+                        placeholder="Details (email, portal, notes...)"
+                        className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1022,7 +1200,6 @@ export default function Customers() {
                 <DetailField label="Customer Group" value={viewing.customer_groups?.name} />
                 <DetailField label="Email" value={viewing.email} />
                 <DetailField label="Phone" value={viewing.phone} />
-                <DetailField label="Inventory Update Email" value={viewing.inventory_update_email} />
                 <DetailField label="Support Email" value={viewing.support_email} />
                 <DetailField
                   label="Address"
@@ -1030,6 +1207,28 @@ export default function Customers() {
                     .filter(Boolean)
                     .join(', ')}
                 />
+
+                <div>
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Capabilities</div>
+                  <div className="space-y-1">
+                    {[
+                      ['Inventory Feed', viewing.inventory_feed_method, viewing.inventory_feed_details],
+                      ['Order Import', viewing.order_import_method, viewing.order_import_details],
+                      ['Shipping / Tracking', viewing.shipping_tracking_method, viewing.shipping_tracking_details],
+                      ['Invoicing', viewing.invoicing_method, viewing.invoicing_details],
+                      ['Cancellations', viewing.cancellation_method, viewing.cancellation_details],
+                    ].map(([label, method, details]) => (
+                      <div key={label} className="flex justify-between text-sm">
+                        <span className="text-slate-500">{label}</span>
+                        <span className="text-slate-900">
+                          {method === 'NONE'
+                            ? '—'
+                            : `${METHOD_LABELS[method as string] || method}${details ? ` — ${details}` : ''}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 <div>
                   <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Contacts</div>
