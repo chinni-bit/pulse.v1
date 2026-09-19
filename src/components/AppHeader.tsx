@@ -21,13 +21,14 @@ const NAV_LINKS = [
   { href: '/analytics-loss-gain', label: 'Loss/Gain Trends' },
   { href: '/orders', label: 'Orders' },
   { href: '/customers', label: 'Customers' },
-  { href: '/channels', label: 'Channels' },
 ];
 
 const SETTINGS_LINKS = [
   { href: '/admin/users', label: 'Users' },
   { href: '/warehouses', label: 'Warehouses' },
   { href: '/admin/product-types', label: 'Product Types' },
+  { href: '/admin/customer-groups', label: 'Customer Groups' },
+  { href: '/admin/customer-integrations', label: 'Integrations' },
   { href: '/admin/tenant-info', label: 'Tenant Info' },
 ];
 

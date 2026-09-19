@@ -8,7 +8,7 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppHeader } from '@/components/AppHeader';
 import { supabase } from '@/lib/supabase';
 
-interface Channel {
+interface Integration {
   id: string;
   channel_name: string;
   is_active: boolean;
@@ -51,22 +51,24 @@ const CHANNEL_LABELS: Record<string, string> = {
 };
 
 const TESTABLE: Record<string, string> = {
-  WAYFAIR: '/api/channels/test-wayfair',
-  WM3P: '/api/channels/test-walmart',
+  WAYFAIR: '/api/customer-integrations/test-wayfair',
+  WM3P: '/api/customer-integrations/test-walmart',
 };
 
 const SYNCABLE: Record<string, string> = {
-  WAYFAIR: '/api/channels/sync-wayfair-orders',
-  WM3P: '/api/channels/sync-walmart-orders',
+  WAYFAIR: '/api/customer-integrations/sync-wayfair-orders',
+  WM3P: '/api/customer-integrations/sync-walmart-orders',
 };
 
 const PUSHABLE: Record<string, string> = {
-  WAYFAIR: '/api/channels/push-wayfair-inventory',
-  WM3P: '/api/channels/push-walmart-inventory',
+  WAYFAIR: '/api/customer-integrations/push-wayfair-inventory',
+  WM3P: '/api/customer-integrations/push-walmart-inventory',
 };
 
-export default function Channels() {
-  const [channels, setChannels] = useState<Channel[]>([]);
+export default function CustomerIntegrations() {
+  const { tenantId } = useAuthStore();
+
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState<string | null>(null);
@@ -85,38 +87,42 @@ export default function Channels() {
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   const fetchData = async () => {
+    if (!tenantId) return;
     setLoading(true);
 
-    const { data: channelsData } = await supabase
-      .from('channels')
+    const { data: integrationsData } = await supabase
+      .from('customer_integrations')
       .select('id, channel_name, is_active, sync_frequency_minutes, last_sync_at')
+      .eq('tenant_id', tenantId)
       .order('channel_name', { ascending: true });
 
     const { data: logsData } = await supabase
       .from('sync_logs')
       .select('id, channel, sync_type, status, error_message, started_at, completed_at, synced_order_ids, pushed_items')
+      .eq('tenant_id', tenantId)
       .order('started_at', { ascending: false })
       .limit(20);
 
-    setChannels(channelsData || []);
+    setIntegrations(integrationsData || []);
     setLogs(logsData || []);
     setLoading(false);
   };
 
   useEffect(() => {
     fetchData();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]);
 
-  const saveInterval = async (channelId: string, channelName: string) => {
+  const saveInterval = async (integrationId: string, channelName: string) => {
     const raw = intervalDrafts[channelName];
     const minutes = Number(raw);
     if (!raw || !Number.isFinite(minutes) || minutes < 1) return;
 
     setIntervalSaving(channelName);
     const { error } = await supabase
-      .from('channels')
+      .from('customer_integrations')
       .update({ sync_frequency_minutes: Math.round(minutes) })
-      .eq('id', channelId);
+      .eq('id', integrationId);
     setIntervalSaving(null);
 
     if (!error) {
@@ -252,17 +258,17 @@ export default function Channels() {
   return (
     <ProtectedRoute>
       <Head>
-        <title>Channels - Nestora Pulse</title>
+        <title>Integrations - Nestora Pulse</title>
       </Head>
 
       <main className="min-h-screen bg-slate-50">
-        <AppHeader title="Channels" />
+        <AppHeader title="Integrations" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
             Wayfair and Walmart (WM3P) can both pull orders and push inventory - Amazon (AMAZON3P)
             isn&apos;t connected yet. By default every product uses its own SKU on both connected
-            channels (that&apos;s how their APIs are designed to work) - set a channel-specific SKU
+            integrations (that&apos;s how their APIs are designed to work) - set a channel-specific SKU
             override on a product in{' '}
             <Link href="/products" className="underline">Products</Link> only if a channel
             actually lists it under a different code. A fully cancelled order is marked Cancelled
@@ -271,9 +277,9 @@ export default function Channels() {
             expected, not a bug. Wayfair reports inventory per warehouse (they price/source by
             shipping cost from each one) - set a Wayfair Supplier ID on a warehouse in{' '}
             <Link href="/warehouses" className="underline">Warehouses</Link> to include it;
-            warehouses without one are skipped. Each channel below has its own auto-sync interval -
-            a scheduled job pulls orders automatically on that cadence (see the note under the
-            interval field for how often this actually runs).
+            warehouses without one are skipped. Each integration below has its own auto-sync
+            interval - a scheduled job pulls orders automatically on that cadence (see the note
+            under the interval field for how often this actually runs).
           </div>
 
           {loading ? (
@@ -282,26 +288,26 @@ export default function Channels() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-              {channels.map((channel) => {
-                const connected = Boolean(TESTABLE[channel.channel_name]);
+              {integrations.map((integration) => {
+                const connected = Boolean(TESTABLE[integration.channel_name]);
                 return (
-                <div key={channel.id} className="bg-white rounded-lg shadow p-6">
+                <div key={integration.id} className="bg-white rounded-lg shadow p-6">
                   <div className="flex justify-between items-start mb-3">
                     <h2 className="text-lg font-semibold text-slate-900">
-                      {CHANNEL_LABELS[channel.channel_name] || channel.channel_name}
+                      {CHANNEL_LABELS[integration.channel_name] || integration.channel_name}
                     </h2>
                     <span
                       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        connected && channel.is_active
+                        connected && integration.is_active
                           ? 'bg-green-100 text-green-800'
                           : 'bg-slate-100 text-slate-600'
                       }`}
                     >
-                      {connected ? (channel.is_active ? 'Active' : 'Inactive') : 'Not Connected'}
+                      {connected ? (integration.is_active ? 'Active' : 'Inactive') : 'Not Connected'}
                     </span>
                   </div>
                   <p className="text-sm text-slate-500 mb-2">
-                    Last sync: {channel.last_sync_at ? new Date(channel.last_sync_at).toLocaleString() : 'Never'}
+                    Last sync: {integration.last_sync_at ? new Date(integration.last_sync_at).toLocaleString() : 'Never'}
                   </p>
 
                   {connected && (
@@ -310,84 +316,84 @@ export default function Channels() {
                       <input
                         type="number"
                         min="1"
-                        value={intervalDrafts[channel.channel_name] ?? String(channel.sync_frequency_minutes)}
+                        value={intervalDrafts[integration.channel_name] ?? String(integration.sync_frequency_minutes)}
                         onChange={(e) =>
-                          setIntervalDrafts((prev) => ({ ...prev, [channel.channel_name]: e.target.value }))
+                          setIntervalDrafts((prev) => ({ ...prev, [integration.channel_name]: e.target.value }))
                         }
-                        disabled={intervalSaving === channel.channel_name}
+                        disabled={intervalSaving === integration.channel_name}
                         className="w-16 px-2 py-1 text-xs border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
                       />
                       <span className="text-xs text-slate-500">min</span>
                       <button
-                        onClick={() => saveInterval(channel.id, channel.channel_name)}
-                        disabled={intervalSaving === channel.channel_name}
+                        onClick={() => saveInterval(integration.id, integration.channel_name)}
+                        disabled={intervalSaving === integration.channel_name}
                         className="text-xs text-blue-600 hover:underline font-medium"
                       >
-                        {intervalSaving === channel.channel_name ? 'Saving...' : 'Save'}
+                        {intervalSaving === integration.channel_name ? 'Saving...' : 'Save'}
                       </button>
                     </div>
                   )}
 
-                  {TESTABLE[channel.channel_name] ? (
+                  {TESTABLE[integration.channel_name] ? (
                     <>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => testConnection(channel.channel_name)}
-                          disabled={testing === channel.channel_name}
+                          onClick={() => testConnection(integration.channel_name)}
+                          disabled={testing === integration.channel_name}
                           className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:bg-slate-400"
                         >
-                          {testing === channel.channel_name ? 'Testing...' : 'Test Connection'}
+                          {testing === integration.channel_name ? 'Testing...' : 'Test Connection'}
                         </button>
-                        {SYNCABLE[channel.channel_name] && (
+                        {SYNCABLE[integration.channel_name] && (
                           <button
-                            onClick={() => syncOrders(channel.channel_name)}
-                            disabled={syncing === channel.channel_name}
+                            onClick={() => syncOrders(integration.channel_name)}
+                            disabled={syncing === integration.channel_name}
                             className="px-3 py-1.5 bg-slate-700 text-white text-sm font-medium rounded-lg hover:bg-slate-800 disabled:bg-slate-400"
                           >
-                            {syncing === channel.channel_name ? 'Pulling...' : 'Pull Orders'}
+                            {syncing === integration.channel_name ? 'Pulling...' : 'Pull Orders'}
                           </button>
                         )}
-                        {PUSHABLE[channel.channel_name] && (
+                        {PUSHABLE[integration.channel_name] && (
                           <button
-                            onClick={() => pushInventory(channel.channel_name)}
-                            disabled={pushing === channel.channel_name}
+                            onClick={() => pushInventory(integration.channel_name)}
+                            disabled={pushing === integration.channel_name}
                             className="px-3 py-1.5 bg-amber-700 text-white text-sm font-medium rounded-lg hover:bg-amber-800 disabled:bg-slate-400"
                           >
-                            {pushing === channel.channel_name ? 'Pushing...' : 'Push Inventory'}
+                            {pushing === integration.channel_name ? 'Pushing...' : 'Push Inventory'}
                           </button>
                         )}
                       </div>
-                      {testResult[channel.channel_name] && (
+                      {testResult[integration.channel_name] && (
                         <p
                           className={`text-sm mt-2 ${
-                            testResult[channel.channel_name].startsWith('Connected')
+                            testResult[integration.channel_name].startsWith('Connected')
                               ? 'text-green-700'
                               : 'text-red-700'
                           }`}
                         >
-                          {testResult[channel.channel_name]}
+                          {testResult[integration.channel_name]}
                         </p>
                       )}
-                      {syncResult[channel.channel_name] && (
+                      {syncResult[integration.channel_name] && (
                         <p
                           className={`text-sm mt-2 ${
-                            syncResult[channel.channel_name].startsWith('Failed')
+                            syncResult[integration.channel_name].startsWith('Failed')
                               ? 'text-red-700'
                               : 'text-green-700'
                           }`}
                         >
-                          {syncResult[channel.channel_name]}
+                          {syncResult[integration.channel_name]}
                         </p>
                       )}
-                      {pushResult[channel.channel_name] && (
+                      {pushResult[integration.channel_name] && (
                         <p
                           className={`text-sm mt-2 ${
-                            pushResult[channel.channel_name].startsWith('Failed')
+                            pushResult[integration.channel_name].startsWith('Failed')
                               ? 'text-red-700'
                               : 'text-green-700'
                           }`}
                         >
-                          {pushResult[channel.channel_name]}
+                          {pushResult[integration.channel_name]}
                         </p>
                       )}
                     </>

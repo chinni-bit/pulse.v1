@@ -7,38 +7,42 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppHeader } from '@/components/AppHeader';
 import { supabase } from '@/lib/supabase';
 
-const MAX_NAME_LENGTH = 60;
+const MAX_NAME_LENGTH = 100;
+const MAX_DESCRIPTION_LENGTH = 500;
 
-interface ProductType {
+interface CustomerGroup {
   id: string;
   name: string;
-  product_count: number;
+  description: string | null;
+  customer_count: number;
 }
 
-export default function ProductTypes() {
-  const { tenantId, user } = useAuthStore();
+export default function CustomerGroups() {
+  const { tenantId } = useAuthStore();
 
-  const [productTypes, setProductTypes] = useState<ProductType[]>([]);
+  const [groups, setGroups] = useState<CustomerGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState('');
 
   const [newName, setNewName] = useState('');
+  const [newDescription, setNewDescription] = useState('');
   const [addError, setAddError] = useState('');
   const [adding, setAdding] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
   const [editError, setEditError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const fetchProductTypes = async () => {
+  const fetchGroups = async () => {
     if (!tenantId) return;
     setLoading(true);
     setListError('');
 
-    const [{ data: typesData, error }, { data: productsData }] = await Promise.all([
-      supabase.from('product_types').select('id, name').eq('tenant_id', tenantId).order('name', { ascending: true }),
-      supabase.from('products').select('product_type_id').eq('tenant_id', tenantId).not('product_type_id', 'is', null),
+    const [{ data: groupsData, error }, { data: customersData }] = await Promise.all([
+      supabase.from('customer_groups').select('id, name, description').eq('tenant_id', tenantId).order('name', { ascending: true }),
+      supabase.from('customers').select('customer_group_id').eq('tenant_id', tenantId).not('customer_group_id', 'is', null),
     ]);
 
     if (error) {
@@ -48,16 +52,16 @@ export default function ProductTypes() {
     }
 
     const counts = new Map<string, number>();
-    (productsData || []).forEach((p) => {
-      if (p.product_type_id) counts.set(p.product_type_id, (counts.get(p.product_type_id) || 0) + 1);
+    (customersData || []).forEach((c) => {
+      if (c.customer_group_id) counts.set(c.customer_group_id, (counts.get(c.customer_group_id) || 0) + 1);
     });
 
-    setProductTypes((typesData || []).map((t) => ({ ...t, product_count: counts.get(t.id) || 0 })));
+    setGroups((groupsData || []).map((g) => ({ ...g, customer_count: counts.get(g.id) || 0 })));
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchProductTypes();
+    fetchGroups();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
@@ -78,7 +82,9 @@ export default function ProductTypes() {
     setAdding(true);
     setAddError('');
 
-    const { error } = await supabase.from('product_types').insert({ tenant_id: tenantId, name, created_by: user?.id || null });
+    const { error } = await supabase
+      .from('customer_groups')
+      .insert({ tenant_id: tenantId, name, description: newDescription.trim() || null });
 
     setAdding(false);
 
@@ -88,12 +94,14 @@ export default function ProductTypes() {
     }
 
     setNewName('');
-    fetchProductTypes();
+    setNewDescription('');
+    fetchGroups();
   };
 
-  const openEdit = (t: ProductType) => {
-    setEditingId(t.id);
-    setEditName(t.name);
+  const openEdit = (g: CustomerGroup) => {
+    setEditingId(g.id);
+    setEditName(g.name);
+    setEditDescription(g.description || '');
     setEditError('');
   };
 
@@ -108,7 +116,10 @@ export default function ProductTypes() {
     setSaving(true);
     setEditError('');
 
-    const { error } = await supabase.from('product_types').update({ name }).eq('id', id);
+    const { error } = await supabase
+      .from('customer_groups')
+      .update({ name, description: editDescription.trim() || null })
+      .eq('id', id);
 
     setSaving(false);
 
@@ -118,59 +129,69 @@ export default function ProductTypes() {
     }
 
     setEditingId(null);
-    fetchProductTypes();
+    fetchGroups();
   };
 
-  const handleDelete = async (t: ProductType) => {
-    if (t.product_count > 0) {
+  const handleDelete = async (g: CustomerGroup) => {
+    if (g.customer_count > 0) {
       window.alert(
-        `"${t.name}" is used by ${t.product_count} product${t.product_count === 1 ? '' : 's'} - reassign ${
-          t.product_count === 1 ? 'it' : 'them'
-        } to a different type before deleting this one.`
+        `"${g.name}" is used by ${g.customer_count} customer${g.customer_count === 1 ? '' : 's'} - reassign ${
+          g.customer_count === 1 ? 'it' : 'them'
+        } to a different group before deleting this one.`
       );
       return;
     }
 
-    if (!window.confirm(`Delete product type "${t.name}"? This can't be undone.`)) return;
+    if (!window.confirm(`Delete customer group "${g.name}"? This can't be undone.`)) return;
 
-    const { error } = await supabase.from('product_types').delete().eq('id', t.id);
+    const { error } = await supabase.from('customer_groups').delete().eq('id', g.id);
 
     if (error) {
       setListError(error.message);
       return;
     }
 
-    fetchProductTypes();
+    fetchGroups();
   };
 
   return (
     <ProtectedRoute>
       <Head>
-        <title>Product Types - Nestora Pulse</title>
+        <title>Customer Groups - Nestora Pulse</title>
       </Head>
 
       <main className="min-h-screen bg-slate-50">
-        <AppHeader title="Product Types" />
+        <AppHeader title="Customer Groups" />
 
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <p className="text-slate-600 text-sm mb-4">
-            {productTypes.length} product type{productTypes.length === 1 ? '' : 's'} - used to categorize products
-            (e.g. Crib, Dresser, Desk) on the Products page.
+            {groups.length} customer group{groups.length === 1 ? '' : 's'} - categorizes everyone Nestora sells
+            to (marketplaces, big-box retailers, resellers, independent stores, etc.) for reporting and
+            product exclusivity.
           </p>
 
           <div className="bg-white rounded-lg shadow p-4 mb-6">
             {addError && (
               <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{addError}</div>
             )}
-            <form onSubmit={handleAdd} className="flex gap-2">
+            <form onSubmit={handleAdd} className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <input
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 disabled={adding}
                 maxLength={MAX_NAME_LENGTH}
-                placeholder="e.g. Crib, Dresser, Desk"
-                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                placeholder="e.g. Big Box Stores"
+                className="sm:col-span-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+              />
+              <input
+                type="text"
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                disabled={adding}
+                maxLength={MAX_DESCRIPTION_LENGTH}
+                placeholder="Description (optional)"
+                className="sm:col-span-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
               />
               <button
                 type="submit"
@@ -190,26 +211,27 @@ export default function ProductTypes() {
             {loading ? (
               <div className="text-center py-12">
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                <p className="mt-4 text-slate-600">Loading product types...</p>
+                <p className="mt-4 text-slate-600">Loading customer groups...</p>
               </div>
-            ) : productTypes.length === 0 ? (
-              <div className="text-center py-12 text-slate-500">No product types yet. Add your first one above.</div>
+            ) : groups.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">No customer groups yet. Add your first one above.</div>
             ) : (
               <table className="min-w-full">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Name</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-32">Products</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">Description</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900 w-28">Customers</th>
                     <th className="px-6 py-3 text-right text-sm font-semibold text-slate-900 w-40">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {productTypes.map((t) =>
-                    editingId === t.id ? (
-                      <tr key={t.id} className="bg-slate-50">
-                        <td className="px-6 py-3" colSpan={3}>
+                  {groups.map((g) =>
+                    editingId === g.id ? (
+                      <tr key={g.id} className="bg-slate-50">
+                        <td className="px-6 py-3" colSpan={4}>
                           {editError && <p className="text-red-700 text-sm mb-2">{editError}</p>}
-                          <form onSubmit={(e) => handleEditSave(e, t.id)} className="flex gap-2">
+                          <form onSubmit={(e) => handleEditSave(e, g.id)} className="flex flex-wrap gap-2">
                             <input
                               type="text"
                               value={editName}
@@ -217,7 +239,16 @@ export default function ProductTypes() {
                               disabled={saving}
                               autoFocus
                               maxLength={MAX_NAME_LENGTH}
-                              className="flex-1 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                              className="flex-1 min-w-[160px] px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
+                            />
+                            <input
+                              type="text"
+                              value={editDescription}
+                              onChange={(e) => setEditDescription(e.target.value)}
+                              disabled={saving}
+                              maxLength={MAX_DESCRIPTION_LENGTH}
+                              placeholder="Description (optional)"
+                              className="flex-1 min-w-[200px] px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
                             />
                             <button
                               type="submit"
@@ -238,15 +269,16 @@ export default function ProductTypes() {
                         </td>
                       </tr>
                     ) : (
-                      <tr key={t.id} className="hover:bg-slate-50">
-                        <td className="px-6 py-3 text-sm text-slate-900 font-medium">{t.name}</td>
-                        <td className="px-6 py-3 text-sm text-slate-600">{t.product_count}</td>
+                      <tr key={g.id} className="hover:bg-slate-50">
+                        <td className="px-6 py-3 text-sm text-slate-900 font-medium">{g.name}</td>
+                        <td className="px-6 py-3 text-sm text-slate-600">{g.description || '—'}</td>
+                        <td className="px-6 py-3 text-sm text-slate-600">{g.customer_count}</td>
                         <td className="px-6 py-3 text-sm text-right space-x-3">
-                          <button onClick={() => openEdit(t)} className="text-blue-600 hover:underline font-medium">
-                            Rename
+                          <button onClick={() => openEdit(g)} className="text-blue-600 hover:underline font-medium">
+                            Edit
                           </button>
                           <button
-                            onClick={() => handleDelete(t)}
+                            onClick={() => handleDelete(g)}
                             className="text-red-600 hover:underline font-medium"
                           >
                             Delete

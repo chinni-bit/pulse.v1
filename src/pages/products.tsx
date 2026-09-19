@@ -255,7 +255,7 @@ export default function Products() {
     if (!tenantId) return;
 
     const { data } = await supabase
-      .from('channels')
+      .from('customer_integrations')
       .select('channel_name')
       .eq('tenant_id', tenantId)
       .order('channel_name', { ascending: true });
@@ -695,7 +695,7 @@ export default function Products() {
     if (!tenantId || !name.trim()) return null;
     const { data, error } = await supabase
       .from('brands')
-      .insert({ tenant_id: tenantId, name: name.trim() })
+      .insert({ tenant_id: tenantId, name: name.trim(), created_by: user?.id || null })
       .select('id, name')
       .single();
 
@@ -712,7 +712,7 @@ export default function Products() {
     if (!tenantId || !name.trim()) return null;
     const { data, error } = await supabase
       .from('product_types')
-      .insert({ tenant_id: tenantId, name: name.trim() })
+      .insert({ tenant_id: tenantId, name: name.trim(), created_by: user?.id || null })
       .select('id, name')
       .single();
 

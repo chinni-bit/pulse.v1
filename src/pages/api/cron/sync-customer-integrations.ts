@@ -29,7 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   const { data: channels, error: channelsError } = await admin
-    .from('channels')
+    .from('customer_integrations')
     .select('id, tenant_id, channel_name, is_active, last_sync_at, sync_frequency_minutes')
     .eq('is_active', true)
     .in('channel_name', ['WAYFAIR', 'WM3P']);
@@ -69,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     if (result.status === 'success') {
-      await admin.from('channels').update({ last_sync_at: new Date().toISOString() }).eq('id', channel.id);
+      await admin.from('customer_integrations').update({ last_sync_at: new Date().toISOString() }).eq('id', channel.id);
     }
 
     results.push({ tenant_id: channel.tenant_id, channel: channel.channel_name, status: result.status, summary });

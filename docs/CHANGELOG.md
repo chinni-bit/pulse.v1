@@ -1496,6 +1496,72 @@ tenant-scoped country dropdown still renders its full list.
   this was NOT applied; asked the owner to clarify intent instead of
   guessing at a destructive change to working code.
 
+## Channels folded into Customers; Customer Groups seeded and given a real page (2026-09-19)
+
+Owner clarified, across a multi-message design discussion, that "channel"
+(Amazon/Wayfair/Walmart) and "customer" (B2B buyers, retailers, resellers)
+should be one unified concept - everyone Nestora sells to is a "customer,"
+categorized by customer group, with the technical API-sync plumbing
+(credentials, sync schedule) as a separate record a customer can optionally
+point to. Confirmed no external cron pinger exists yet, so the rename could
+touch URLs safely. Implemented in
+`supabase/migrations/20260919150000_channels_to_customer_integrations_and_created_by.sql`.
+`npx tsc --noEmit` clean throughout; live-verified in the browser (dashboard's
+Channel Sync Status widget, the Settings dropdown's 6 links, the renamed
+Integrations page's full sync-history view, and all 9 seeded Customer
+Groups) plus a direct SQL check that the `created_by` FK on `brands` actually
+accepts and stores a real user id.
+
+- **`channels` renamed to `customer_integrations`** (same columns:
+  `channel_name`, `is_active`, `sync_frequency_minutes`, `last_sync_at`) -
+  it was always pure sync plumbing, never a business concept in its own
+  right. `channel_configs` (Amazon's stored refresh_token/
+  selling_partner_id) renamed to `customer_integration_configs` for the
+  same reason, its `channel_id` column renamed to `integration_id`.
+- **`customers.integration_id`** - new nullable FK to
+  `customer_integrations(id)`, set only for the handful of customers with
+  real API sync (Amazon/Wayfair/Walmart today). Everyone else (Home Depot,
+  local stores, future Target/Beyond additions) has no integration row at
+  all until one is actually built for them.
+- **9 customer-group categories seeded** into `customer_groups` for every
+  existing tenant, exactly as specified: ECom Channels, ECom Resellers,
+  Big Box Stores, Independent Stores, Market Places, Value/Discount
+  Customers, Specialty Stores, Social Media, Others.
+- **New `/admin/customer-groups` page** - list/add/rename/delete, delete
+  blocked with a friendly message if any customer still uses that group
+  (same safety pattern as last round's Product Types page).
+- **`channels.tsx` moved to `/admin/customer-integrations.tsx`** (all 6
+  files under `api/channels/*` moved to `api/customer-integrations/*`,
+  `api/cron/sync-channels.ts` moved to
+  `api/cron/sync-customer-integrations.ts`, `vercel.json`'s cron path and
+  `CREDENTIALS.md` updated to match). **Found and fixed a real
+  pre-existing bug while moving this file**: the old `channels.tsx` had no
+  `tenant_id` filter at all on its queries - it didn't even import
+  `useAuthStore`. Invisible with only one real tenant, but a second tenant
+  would have seen every tenant's integration rows and sync logs mixed
+  together. Fixed as part of the move, not treated as in-scope-only-if-
+  asked, since leaving a known data-isolation bug in code being actively
+  rewritten anyway isn't defensible.
+- **`created_by` added to `brands` and `product_types`** too, closing the
+  gap flagged (and deliberately left open, pending this decision) last
+  round. **Caught and fixed a real gap of my own**: initially added the
+  DB columns but forgot to actually wire `created_by` into the 3 insert
+  call sites (`products.tsx`'s `createBrand`/`createProductType`, and
+  `/admin/product-types.tsx`'s add form) - caught this by re-reading the
+  diff before calling the round done, not by the owner catching it.
+- **Settings dropdown** now has 6 links: Users, Warehouses, Product Types,
+  Customer Groups, Integrations, Tenant Info. "Channels" removed from the
+  main nav entirely (it's `/admin/customer-integrations` now, Settings-only).
+
+**Not done this round, explicitly deferred, not silently dropped:** the
+method+details capability fields discussed for `customers` (inventory
+feed / order import / shipping updates / invoicing / cancellations, each
+as API/Email/FTP/Portal/EDI/Manual/None + free-text detail) - substantively
+discussed but never given an explicit final go-ahead in the same message as
+everything else that was confirmed, so left for a dedicated round rather
+than assumed. `product_mappings.channel` also intentionally untouched -
+already covered in the entry above from the prior round explaining why.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at

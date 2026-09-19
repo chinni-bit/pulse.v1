@@ -16,12 +16,12 @@ h1{color:${ok ? '#15803d' : '#b91c1c'}}</style></head>
 // self-authorization from Developer Central. No Nestora Pulse session
 // exists on this request (it's a fresh navigation from Amazon's own
 // domain), so this uses the service-role key directly, same pattern as
-// /api/cron/sync-channels.
+// /api/cron/sync-customer-integrations.
 //
 // Assumes a single real Amazon-connected tenant for now (there's only one
-// AMAZON3P channel row today) - revisit if a second tenant ever connects
-// its own Amazon account, since `state` isn't currently used to
-// disambiguate which tenant initiated this (Amazon's self-authorization
+// AMAZON3P customer_integrations row today) - revisit if a second tenant
+// ever connects its own Amazon account, since `state` isn't currently used
+// to disambiguate which tenant initiated this (Amazon's self-authorization
 // flow generates `state` itself; we don't control it).
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { spapi_oauth_code: code, selling_partner_id: sellingPartnerId, error, error_description } = req.query;
@@ -50,13 +50,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const tokenResponse = await exchangeAmazonAuthCode(code, redirectUri);
 
     const { data: channel, error: channelError } = await admin
-      .from('channels')
+      .from('customer_integrations')
       .select('id, tenant_id')
       .eq('channel_name', 'AMAZON3P')
       .maybeSingle();
 
     if (channelError || !channel) {
-      throw new Error('No AMAZON3P channel row found to attach this authorization to.');
+      throw new Error('No AMAZON3P integration row found to attach this authorization to.');
     }
 
     const configs = [
@@ -65,15 +65,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ];
 
     for (const cfg of configs) {
-      const { error: upsertError } = await admin.from('channel_configs').upsert(
+      const { error: upsertError } = await admin.from('customer_integration_configs').upsert(
         {
           tenant_id: channel.tenant_id,
-          channel_id: channel.id,
+          integration_id: channel.id,
           config_key: cfg.config_key,
           config_value: cfg.config_value,
           is_encrypted: false,
         },
-        { onConflict: 'tenant_id,channel_id,config_key' }
+        { onConflict: 'tenant_id,integration_id,config_key' }
       );
       if (upsertError) throw new Error(`Failed to save ${cfg.config_key}: ${upsertError.message}`);
     }
@@ -93,7 +93,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .send(
         page(
           'Amazon connected',
-          'Nestora Pulse is now authorized against your Amazon seller account. You can close this tab and return to the Channels page.',
+          'Nestora Pulse is now authorized against your Amazon seller account. You can close this tab and return to the Integrations page.',
           true
         )
       );

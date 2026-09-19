@@ -59,7 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (result.status === 'success') {
     await callerClient
-      .from('channels')
+      .from('customer_integrations')
       .update({ last_sync_at: new Date().toISOString() })
       .eq('tenant_id', tenantId)
       .eq('channel_name', 'WM3P');

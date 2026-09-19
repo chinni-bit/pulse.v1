@@ -45,7 +45,7 @@ export default function MobileSync() {
     const fetchAll = async () => {
       setLoading(true);
       const [{ data: chData }, { data: logData }] = await Promise.all([
-        supabase.from('channels').select('channel_name, is_active, last_sync_at, sync_frequency_minutes').eq('tenant_id', tenantId).order('channel_name'),
+        supabase.from('customer_integrations').select('channel_name, is_active, last_sync_at, sync_frequency_minutes').eq('tenant_id', tenantId).order('channel_name'),
         supabase.from('sync_logs').select('id, channel, sync_type, status, records_synced, records_failed, error_message, started_at').eq('tenant_id', tenantId).order('started_at', { ascending: false }).limit(30),
       ]);
       setChannels((chData as ChannelInfo[]) || []);

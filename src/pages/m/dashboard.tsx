@@ -101,7 +101,7 @@ export default function MobileDashboard() {
       setRecentOrders((orders as RecentOrder[]) || []);
 
       const { data: channelsData } = await supabase
-        .from('channels')
+        .from('customer_integrations')
         .select('channel_name, is_active, last_sync_at')
         .eq('tenant_id', tenantId)
         .order('channel_name', { ascending: true });

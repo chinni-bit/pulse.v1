@@ -77,7 +77,7 @@ export default function AnalyticsChannels() {
     const [{ data: ordersData }, { data: syncData }, { data: channelsData }] = await Promise.all([
       supabase.from('orders').select('id, order_number, channel, status, total_amount, created_at').eq('tenant_id', tenantId),
       supabase.from('sync_logs').select('id, channel, sync_type, status, records_synced, records_failed, error_message, started_at').eq('tenant_id', tenantId),
-      supabase.from('channels').select('channel_name, is_active, last_sync_at, sync_frequency_minutes').eq('tenant_id', tenantId),
+      supabase.from('customer_integrations').select('channel_name, is_active, last_sync_at, sync_frequency_minutes').eq('tenant_id', tenantId),
     ]);
 
     setOrders((ordersData as Order[]) || []);

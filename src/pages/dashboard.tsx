@@ -126,11 +126,11 @@ export default function Dashboard() {
           outOfStockCount: outOfStock.length,
         });
 
-        // Sync status per channel, driven by the channels table (the
-        // source of truth for last_sync_at and each channel's configured
-        // interval), not just the most recent log line.
+        // Sync status per channel, driven by the customer_integrations table
+        // (the source of truth for last_sync_at and each channel's
+        // configured interval), not just the most recent log line.
         const { data: channelsData } = await supabase
-          .from('channels')
+          .from('customer_integrations')
           .select('channel_name, is_active, last_sync_at, sync_frequency_minutes')
           .eq('tenant_id', tenantId)
           .order('channel_name', { ascending: true });
@@ -273,7 +273,7 @@ export default function Dashboard() {
                     warehouses
                   </Link>
                   . Channel sync — order pull and inventory push are working for{' '}
-                  <Link href="/channels" className="underline font-medium">
+                  <Link href="/admin/customer-integrations" className="underline font-medium">
                     Wayfair and Walmart
                   </Link>
                   ; Amazon isn&apos;t connected yet.
