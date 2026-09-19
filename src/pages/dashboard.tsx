@@ -60,7 +60,7 @@ export default function Dashboard() {
           .from('products')
           .select('id, sku, title, reorder_threshold, status')
           .eq('tenant_id', tenantId)
-          .is('deleted_at', null);
+          .is('deactivated_at', null);
 
         const activeProducts = (products || []).filter((p) => p.status === 'ACTIVE');
 

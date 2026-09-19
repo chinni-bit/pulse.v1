@@ -55,7 +55,7 @@ export default function MobileDashboard() {
         .from('products')
         .select('id, reorder_threshold, status')
         .eq('tenant_id', tenantId)
-        .is('deleted_at', null);
+        .is('deactivated_at', null);
       const activeProducts = (products || []).filter((p) => p.status === 'ACTIVE');
 
       const { data: warehouses } = await supabase

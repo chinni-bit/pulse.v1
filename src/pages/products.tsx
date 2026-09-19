@@ -11,42 +11,42 @@ import { supabase } from '@/lib/supabase';
 const MAX_SKU_LENGTH = 40;
 const MAX_TITLE_LENGTH = 200;
 const MAX_BRAND_LENGTH = 100;
+const MAX_PRODUCT_TYPE_LENGTH = 60;
+const MAX_UPC_LENGTH = 20;
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 const NEW_BRAND_VALUE = '__new__';
 const NEW_FINISH_GROUP_VALUE = '__new__';
+const NEW_PRODUCT_TYPE_VALUE = '__new__';
 const PAGE_SIZE_STORAGE_KEY = 'pulse.products.pageSize';
 
-const COUNTRY_OPTIONS = [
-  'USA',
-  'China',
-  'Vietnam',
-  'Thailand',
-  'Indonesia',
-  'India',
-  'Mexico',
-  'Malaysia',
-  'Cambodia',
-  'Other',
-];
-
-type SortKey = 'sku' | 'title' | 'brand_name' | 'product_type' | 'cost' | 'msrp' | 'status';
+type SortKey = 'sku' | 'title' | 'brand' | 'type' | 'cost' | 'msrp' | 'status';
 type StatusFilter = 'ACTIVE' | 'ALL' | 'INACTIVE' | 'FUTURE';
+
+interface LookupOption {
+  id: string;
+  name: string;
+}
 
 interface Product {
   id: string;
   sku: string;
   title: string;
   description: string | null;
-  brand_name: string | null;
+  brand_id: string | null;
+  brands: { name: string } | null;
   cost: number | null;
   msrp: number | null;
   status: string;
   reorder_threshold: number;
-  product_type: string | null;
+  product_type_id: string | null;
+  product_types: { name: string } | null;
   finish: string | null;
   finish_group_id: string | null;
   finish_groups: { name: string } | null;
-  country_of_origin: string | null;
+  country_of_origin_id: string | null;
+  countries: { name: string } | null;
+  upc1: string | null;
+  upc2: string | null;
   product_length: number | null;
   product_width: number | null;
   product_height: number | null;
@@ -64,15 +64,17 @@ interface ProductFormData {
   sku: string;
   title: string;
   description: string;
-  brand_name: string;
+  brand_id: string;
   cost: string;
   msrp: string;
   status: string;
   reorder_threshold: string;
-  product_type: string;
+  product_type_id: string;
   finish: string;
   finish_group_id: string;
-  country_of_origin: string;
+  country_of_origin_id: string;
+  upc1: string;
+  upc2: string;
   product_length: string;
   product_width: string;
   product_height: string;
@@ -90,15 +92,17 @@ const EMPTY_FORM: ProductFormData = {
   sku: '',
   title: '',
   description: '',
-  brand_name: '',
+  brand_id: '',
   cost: '',
   msrp: '',
-  status: 'ACTIVE',
+  status: 'FUTURE',
   reorder_threshold: '10',
-  product_type: '',
+  product_type_id: '',
   finish: '',
   finish_group_id: '',
-  country_of_origin: '',
+  country_of_origin_id: '',
+  upc1: '',
+  upc2: '',
   product_length: '',
   product_width: '',
   product_height: '',
@@ -163,7 +167,7 @@ interface ExclusivityRow {
 }
 
 export default function Products() {
-  const { tenantId } = useAuthStore();
+  const { tenantId, user } = useAuthStore();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [channelNames, setChannelNames] = useState<string[]>([]);
@@ -188,7 +192,13 @@ export default function Products() {
   const [finishGroups, setFinishGroups] = useState<CustomerGroup[]>([]);
   const [finishGroupMode, setFinishGroupMode] = useState<'select' | 'new'>('select');
   const [newFinishGroupName, setNewFinishGroupName] = useState('');
-  const [countryMode, setCountryMode] = useState<'select' | 'other'>('select');
+
+  const [brands, setBrands] = useState<LookupOption[]>([]);
+  const [newBrandName, setNewBrandName] = useState('');
+  const [productTypes, setProductTypes] = useState<LookupOption[]>([]);
+  const [productTypeMode, setProductTypeMode] = useState<'select' | 'new'>('select');
+  const [newProductTypeName, setNewProductTypeName] = useState('');
+  const [countries, setCountries] = useState<LookupOption[]>([]);
 
   const [customerGroups, setCustomerGroups] = useState<CustomerGroup[]>([]);
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
@@ -225,10 +235,10 @@ export default function Products() {
     const { data, error } = await supabase
       .from('products')
       .select(
-        'id, sku, title, description, brand_name, cost, msrp, status, reorder_threshold, product_type, finish, finish_group_id, finish_groups(name), country_of_origin, product_length, product_width, product_height, dimension_unit, product_weight, weight_unit, carton_length, carton_width, carton_height, carton_weight, dimension_notes'
+        'id, sku, title, description, brand_id, brands(name), cost, msrp, status, reorder_threshold, product_type_id, product_types(name), finish, finish_group_id, finish_groups(name), country_of_origin_id, countries(name), upc1, upc2, product_length, product_width, product_height, dimension_unit, product_weight, weight_unit, carton_length, carton_width, carton_height, carton_weight, dimension_notes'
       )
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
+      .is('deactivated_at', null)
       .order('title', { ascending: true });
 
     if (error) {
@@ -261,6 +271,28 @@ export default function Products() {
     setFinishGroups(data || []);
   };
 
+  const fetchBrands = async () => {
+    if (!tenantId) return;
+    const { data } = await supabase.from('brands').select('id, name').eq('tenant_id', tenantId).order('name', { ascending: true });
+    setBrands(data || []);
+  };
+
+  const fetchProductTypes = async () => {
+    if (!tenantId) return;
+    const { data } = await supabase
+      .from('product_types')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+      .order('name', { ascending: true });
+    setProductTypes(data || []);
+  };
+
+  // countries is a global reference list, not tenant-scoped - no tenantId filter.
+  const fetchCountries = async () => {
+    const { data } = await supabase.from('countries').select('id, name').order('name', { ascending: true });
+    setCountries(data || []);
+  };
+
   const fetchCustomerGroups = async () => {
     if (!tenantId) return;
     const { data } = await supabase
@@ -285,6 +317,9 @@ export default function Products() {
     fetchProducts();
     fetchChannelNames();
     fetchFinishGroups();
+    fetchBrands();
+    fetchProductTypes();
+    fetchCountries();
     fetchCustomerGroups();
     fetchCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -299,14 +334,6 @@ export default function Products() {
     if (typeof window !== 'undefined') sessionStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(size));
   };
 
-  const brandOptions = useMemo(() => {
-    const names = new Set<string>();
-    products.forEach((p) => {
-      if (p.brand_name) names.add(p.brand_name);
-    });
-    return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [products]);
-
   const filteredSortedProducts = useMemo(() => {
     const term = search.trim().toLowerCase();
     let filtered = statusFilter === 'ALL' ? products : products.filter((p) => p.status === statusFilter);
@@ -316,11 +343,13 @@ export default function Products() {
         (p) =>
           p.sku.toLowerCase().includes(term) ||
           p.title.toLowerCase().includes(term) ||
-          (p.brand_name || '').toLowerCase().includes(term) ||
+          (p.brands?.name || '').toLowerCase().includes(term) ||
           (p.description || '').toLowerCase().includes(term) ||
-          (p.product_type || '').toLowerCase().includes(term) ||
+          (p.product_types?.name || '').toLowerCase().includes(term) ||
           (p.finish || '').toLowerCase().includes(term) ||
-          (p.finish_groups?.name || '').toLowerCase().includes(term)
+          (p.finish_groups?.name || '').toLowerCase().includes(term) ||
+          (p.upc1 || '').toLowerCase().includes(term) ||
+          (p.upc2 || '').toLowerCase().includes(term)
       );
     }
 
@@ -328,6 +357,10 @@ export default function Products() {
       let cmp = 0;
       if (sortKey === 'cost' || sortKey === 'msrp') {
         cmp = (a[sortKey] ?? -Infinity) - (b[sortKey] ?? -Infinity);
+      } else if (sortKey === 'brand') {
+        cmp = (a.brands?.name || '').localeCompare(b.brands?.name || '');
+      } else if (sortKey === 'type') {
+        cmp = (a.product_types?.name || '').localeCompare(b.product_types?.name || '');
       } else {
         cmp = String(a[sortKey] ?? '').localeCompare(String(b[sortKey] ?? ''));
       }
@@ -356,7 +389,7 @@ export default function Products() {
     setFormData(EMPTY_FORM);
     setBrandMode('select');
     setFinishGroupMode('select');
-    setCountryMode('select');
+    setProductTypeMode('select');
     setFormError('');
     setShowForm(true);
   };
@@ -365,15 +398,17 @@ export default function Products() {
     sku: product.sku,
     title: product.title,
     description: product.description || '',
-    brand_name: product.brand_name || '',
+    brand_id: product.brand_id || '',
     cost: product.cost != null ? String(product.cost) : '',
     msrp: product.msrp != null ? String(product.msrp) : '',
     status: product.status,
     reorder_threshold: String(product.reorder_threshold),
-    product_type: product.product_type || '',
+    product_type_id: product.product_type_id || '',
     finish: product.finish || '',
     finish_group_id: product.finish_group_id || '',
-    country_of_origin: product.country_of_origin || '',
+    country_of_origin_id: product.country_of_origin_id || '',
+    upc1: product.upc1 || '',
+    upc2: product.upc2 || '',
     product_length: product.product_length != null ? String(product.product_length) : '',
     product_width: product.product_width != null ? String(product.product_width) : '',
     product_height: product.product_height != null ? String(product.product_height) : '',
@@ -393,17 +428,17 @@ export default function Products() {
     setFormData(productToFormData(product));
     setBrandMode('select');
     setFinishGroupMode('select');
-    setCountryMode(product.country_of_origin && !COUNTRY_OPTIONS.includes(product.country_of_origin) ? 'other' : 'select');
+    setProductTypeMode('select');
     setFormError('');
     setShowForm(true);
   };
 
   const openDuplicateForm = (product: Product) => {
     setEditingId(null);
-    setFormData(productToFormData(product, { sku: '', title: `${product.title} (copy)` }));
+    setFormData(productToFormData(product, { sku: '', title: `${product.title} (copy)`, upc1: '', upc2: '' }));
     setBrandMode('select');
     setFinishGroupMode('select');
-    setCountryMode(product.country_of_origin && !COUNTRY_OPTIONS.includes(product.country_of_origin) ? 'other' : 'select');
+    setProductTypeMode('select');
     setFormError(`Enter a new SKU for this product - everything else was copied from ${product.sku}`);
     setShowForm(true);
   };
@@ -420,7 +455,6 @@ export default function Products() {
 
     const sku = formData.sku.trim();
     const title = formData.title.trim();
-    const brand = formData.brand_name.trim();
 
     if (!sku || !title) {
       setFormError('SKU and Title are required');
@@ -434,10 +468,6 @@ export default function Products() {
       setFormError(`Title can't be longer than ${MAX_TITLE_LENGTH} characters`);
       return;
     }
-    if (brand.length > MAX_BRAND_LENGTH) {
-      setFormError(`Brand can't be longer than ${MAX_BRAND_LENGTH} characters`);
-      return;
-    }
     const cost = formData.cost ? Number(formData.cost) : null;
     const msrp = formData.msrp ? Number(formData.msrp) : null;
     if (cost != null && cost < 0) {
@@ -448,25 +478,53 @@ export default function Products() {
       setFormError('MSRP cannot be negative');
       return;
     }
+    const reorderThreshold = formData.reorder_threshold ? Number(formData.reorder_threshold) : 10;
+    if (!(reorderThreshold > 0)) {
+      setFormError('Reorder threshold must be greater than 0');
+      return;
+    }
+    if (formData.upc1.trim().length > MAX_UPC_LENGTH || formData.upc2.trim().length > MAX_UPC_LENGTH) {
+      setFormError(`UPC codes can't be longer than ${MAX_UPC_LENGTH} characters`);
+      return;
+    }
+
+    const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
+
+    const dimensionFields: [string, string][] = [
+      [formData.product_length, 'Product Length'],
+      [formData.product_width, 'Product Width'],
+      [formData.product_height, 'Product Height'],
+      [formData.product_weight, 'Product Weight'],
+      [formData.carton_length, 'Carton Length'],
+      [formData.carton_width, 'Carton Width'],
+      [formData.carton_height, 'Carton Height'],
+      [formData.carton_weight, 'Carton Weight'],
+    ];
+    for (const [value, label] of dimensionFields) {
+      if (value.trim() && !(Number(value) > 0)) {
+        setFormError(`${label} must be greater than 0 if provided`);
+        return;
+      }
+    }
 
     setSaving(true);
     setFormError('');
-
-    const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
 
     const payload = {
       sku,
       title,
       description: formData.description.trim() || null,
-      brand_name: brand || null,
+      brand_id: formData.brand_id || null,
       cost,
       msrp,
       status: formData.status,
-      reorder_threshold: formData.reorder_threshold ? Number(formData.reorder_threshold) : 10,
-      product_type: formData.product_type.trim() || null,
+      reorder_threshold: reorderThreshold,
+      product_type_id: formData.product_type_id || null,
       finish: formData.finish.trim() || null,
       finish_group_id: formData.finish_group_id || null,
-      country_of_origin: formData.country_of_origin.trim() || null,
+      country_of_origin_id: formData.country_of_origin_id || null,
+      upc1: formData.upc1.trim() || null,
+      upc2: formData.upc2.trim() || null,
       product_length: numOrNull(formData.product_length),
       product_width: numOrNull(formData.product_width),
       product_height: numOrNull(formData.product_height),
@@ -478,11 +536,12 @@ export default function Products() {
       carton_height: numOrNull(formData.carton_height),
       carton_weight: numOrNull(formData.carton_weight),
       dimension_notes: formData.dimension_notes.trim() || null,
+      updated_by: user?.id || null,
     };
 
     const { error } = editingId
       ? await supabase.from('products').update(payload).eq('id', editingId)
-      : await supabase.from('products').insert({ ...payload, tenant_id: tenantId });
+      : await supabase.from('products').insert({ ...payload, tenant_id: tenantId, created_by: user?.id || null });
 
     setSaving(false);
 
@@ -495,7 +554,7 @@ export default function Products() {
     fetchProducts();
   };
 
-  // Products are never hard-deleted (or soft-deleted via deleted_at) -
+  // Products are never hard-deleted (or soft-deleted via deactivated_at) -
   // only deactivated. A deleted product could still be referenced by
   // historical order_items, and removing it (even "softly", hidden from
   // every query) would break that link for sales history/reporting.
@@ -623,6 +682,40 @@ export default function Products() {
     }
 
     setFinishGroups((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+    return data.id;
+  };
+
+  const createBrand = async (name: string): Promise<string | null> => {
+    if (!tenantId || !name.trim()) return null;
+    const { data, error } = await supabase
+      .from('brands')
+      .insert({ tenant_id: tenantId, name: name.trim() })
+      .select('id, name')
+      .single();
+
+    if (error || !data) {
+      setFormError(error?.message || 'Failed to create brand');
+      return null;
+    }
+
+    setBrands((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+    return data.id;
+  };
+
+  const createProductType = async (name: string): Promise<string | null> => {
+    if (!tenantId || !name.trim()) return null;
+    const { data, error } = await supabase
+      .from('product_types')
+      .insert({ tenant_id: tenantId, name: name.trim() })
+      .select('id, name')
+      .single();
+
+    if (error || !data) {
+      setFormError(error?.message || 'Failed to create product type');
+      return null;
+    }
+
+    setProductTypes((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
     return data.id;
   };
 
@@ -925,22 +1018,22 @@ export default function Products() {
                   <label className="block text-sm font-medium text-slate-700 mb-1">Brand</label>
                   {brandMode === 'select' ? (
                     <select
-                      value={brandOptions.includes(formData.brand_name) ? formData.brand_name : ''}
+                      value={formData.brand_id}
                       onChange={(e) => {
                         if (e.target.value === NEW_BRAND_VALUE) {
                           setBrandMode('new');
-                          setFormData({ ...formData, brand_name: '' });
+                          setFormData({ ...formData, brand_id: '' });
                         } else {
-                          setFormData({ ...formData, brand_name: e.target.value });
+                          setFormData({ ...formData, brand_id: e.target.value });
                         }
                       }}
                       disabled={saving}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                     >
                       <option value="">Select a brand...</option>
-                      {brandOptions.map((b) => (
-                        <option key={b} value={b}>
-                          {b}
+                      {brands.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
                         </option>
                       ))}
                       <option value={NEW_BRAND_VALUE}>+ Add new brand...</option>
@@ -950,8 +1043,8 @@ export default function Products() {
                       <input
                         type="text"
                         autoFocus
-                        value={formData.brand_name}
-                        onChange={(e) => setFormData({ ...formData, brand_name: e.target.value })}
+                        value={newBrandName}
+                        onChange={(e) => setNewBrandName(e.target.value)}
                         disabled={saving}
                         maxLength={MAX_BRAND_LENGTH}
                         placeholder="New brand name"
@@ -959,9 +1052,24 @@ export default function Products() {
                       />
                       <button
                         type="button"
+                        onClick={async () => {
+                          const id = await createBrand(newBrandName);
+                          if (id) {
+                            setFormData({ ...formData, brand_id: id });
+                            setNewBrandName('');
+                            setBrandMode('select');
+                          }
+                        }}
+                        disabled={saving || !newBrandName.trim()}
+                        className="px-3 text-sm text-blue-600 hover:underline whitespace-nowrap disabled:text-slate-300"
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => {
                           setBrandMode('select');
-                          setFormData({ ...formData, brand_name: '' });
+                          setNewBrandName('');
                         }}
                         disabled={saving}
                         className="px-3 text-sm text-slate-600 hover:text-slate-900 whitespace-nowrap"
@@ -1016,7 +1124,7 @@ export default function Products() {
                   <label className="block text-sm font-medium text-slate-700 mb-1">Reorder Threshold</label>
                   <input
                     type="number"
-                    min="0"
+                    min="1"
                     value={formData.reorder_threshold}
                     onChange={(e) => setFormData({ ...formData, reorder_threshold: e.target.value })}
                     disabled={saving}
@@ -1026,15 +1134,95 @@ export default function Products() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Product Type</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">UPC 1</label>
                   <input
                     type="text"
-                    value={formData.product_type}
-                    onChange={(e) => setFormData({ ...formData, product_type: e.target.value })}
+                    value={formData.upc1}
+                    onChange={(e) => setFormData({ ...formData, upc1: e.target.value })}
                     disabled={saving}
-                    placeholder="e.g. Crib, Dresser, Desk"
+                    maxLength={MAX_UPC_LENGTH}
+                    placeholder="Optional, must be unique"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">UPC 2</label>
+                  <input
+                    type="text"
+                    value={formData.upc2}
+                    onChange={(e) => setFormData({ ...formData, upc2: e.target.value })}
+                    disabled={saving}
+                    maxLength={MAX_UPC_LENGTH}
+                    placeholder="Optional, must be unique"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Product Type</label>
+                  {productTypeMode === 'select' ? (
+                    <select
+                      value={formData.product_type_id}
+                      onChange={(e) => {
+                        if (e.target.value === NEW_PRODUCT_TYPE_VALUE) {
+                          setProductTypeMode('new');
+                          setFormData({ ...formData, product_type_id: '' });
+                        } else {
+                          setFormData({ ...formData, product_type_id: e.target.value });
+                        }
+                      }}
+                      disabled={saving}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                    >
+                      <option value="">Select a product type...</option>
+                      {productTypes.map((pt) => (
+                        <option key={pt.id} value={pt.id}>
+                          {pt.name}
+                        </option>
+                      ))}
+                      <option value={NEW_PRODUCT_TYPE_VALUE}>+ Add new product type...</option>
+                    </select>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={newProductTypeName}
+                        onChange={(e) => setNewProductTypeName(e.target.value)}
+                        disabled={saving}
+                        maxLength={MAX_PRODUCT_TYPE_LENGTH}
+                        placeholder="e.g. Crib, Dresser, Desk"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const id = await createProductType(newProductTypeName);
+                          if (id) {
+                            setFormData({ ...formData, product_type_id: id });
+                            setNewProductTypeName('');
+                            setProductTypeMode('select');
+                          }
+                        }}
+                        disabled={saving || !newProductTypeName.trim()}
+                        className="px-3 text-sm text-blue-600 hover:underline whitespace-nowrap disabled:text-slate-300"
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProductTypeMode('select');
+                          setNewProductTypeName('');
+                        }}
+                        disabled={saving}
+                        className="px-3 text-sm text-slate-600 hover:text-slate-900 whitespace-nowrap"
+                      >
+                        Use list
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -1112,51 +1300,19 @@ export default function Products() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Country of Origin</label>
-                  {countryMode === 'select' ? (
-                    <select
-                      value={COUNTRY_OPTIONS.includes(formData.country_of_origin) ? formData.country_of_origin : ''}
-                      onChange={(e) => {
-                        if (e.target.value === 'Other') {
-                          setCountryMode('other');
-                          setFormData({ ...formData, country_of_origin: '' });
-                        } else {
-                          setFormData({ ...formData, country_of_origin: e.target.value });
-                        }
-                      }}
-                      disabled={saving}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
-                    >
-                      <option value="">Select a country...</option>
-                      {COUNTRY_OPTIONS.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        autoFocus
-                        value={formData.country_of_origin}
-                        onChange={(e) => setFormData({ ...formData, country_of_origin: e.target.value })}
-                        disabled={saving}
-                        placeholder="Country name"
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCountryMode('select');
-                          setFormData({ ...formData, country_of_origin: '' });
-                        }}
-                        disabled={saving}
-                        className="px-3 text-sm text-slate-600 hover:text-slate-900 whitespace-nowrap"
-                      >
-                        Use list
-                      </button>
-                    </div>
-                  )}
+                  <select
+                    value={formData.country_of_origin_id}
+                    onChange={(e) => setFormData({ ...formData, country_of_origin_id: e.target.value })}
+                    disabled={saving}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
+                  >
+                    <option value="">Select a country...</option>
+                    {countries.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="md:col-span-2">
@@ -1350,8 +1506,8 @@ export default function Products() {
                       [
                         ['sku', 'SKU', 'w-36'],
                         ['title', 'Title', 'w-48'],
-                        ['brand_name', 'Brand', 'w-28'],
-                        ['product_type', 'Type', 'w-28'],
+                        ['brand', 'Brand', 'w-28'],
+                        ['type', 'Type', 'w-28'],
                         ['cost', 'Cost', 'w-20'],
                         ['msrp', 'MSRP', 'w-20'],
                         ['status', 'Status', 'w-24'],
@@ -1383,11 +1539,11 @@ export default function Products() {
                         <td className="px-6 py-4 text-sm text-slate-600 truncate" title={product.title}>
                           {product.title}
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-600 truncate" title={product.brand_name || ''}>
-                          {product.brand_name || '—'}
+                        <td className="px-6 py-4 text-sm text-slate-600 truncate" title={product.brands?.name || ''}>
+                          {product.brands?.name || '—'}
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-600 truncate" title={product.product_type || ''}>
-                          {product.product_type || '—'}
+                        <td className="px-6 py-4 text-sm text-slate-600 truncate" title={product.product_types?.name || ''}>
+                          {product.product_types?.name || '—'}
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600">
                           {product.cost != null ? `$${product.cost.toFixed(2)}` : '—'}
@@ -1797,8 +1953,10 @@ export default function Products() {
               openEditForm(viewingProduct);
             }}
           >
-            <DetailField label="Brand" value={viewingProduct.brand_name} />
-            <DetailField label="Product Type" value={viewingProduct.product_type} />
+            <DetailField label="Brand" value={viewingProduct.brands?.name} />
+            <DetailField label="Product Type" value={viewingProduct.product_types?.name} />
+            <DetailField label="UPC 1" value={viewingProduct.upc1} />
+            <DetailField label="UPC 2" value={viewingProduct.upc2} />
             <DetailField label="Finish" value={viewingProduct.finish} />
             <DetailField label="Finish Group" value={viewingProduct.finish_groups?.name} />
             <DetailField label="Status" value={viewingProduct.status} />
@@ -1837,7 +1995,7 @@ export default function Products() {
               value={viewingProduct.carton_weight != null ? `${viewingProduct.carton_weight} ${viewingProduct.weight_unit || ''}` : null}
             />
             <DetailField label="Dimension Notes" value={viewingProduct.dimension_notes} />
-            <DetailField label="Country of Origin" value={viewingProduct.country_of_origin} />
+            <DetailField label="Country of Origin" value={viewingProduct.countries?.name} />
             <DetailField
               label="Customer Exclusivity"
               value={

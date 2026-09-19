@@ -103,12 +103,32 @@ export default function AnalyticsProducts() {
     const [{ data: itemsData }, { data: ordersData }, { data: productsData }] = await Promise.all([
       supabase.from('order_items').select('id, order_id, product_id, quantity_ordered, unit_price, is_cancelled').eq('tenant_id', tenantId),
       supabase.from('orders').select('id, order_number, channel, status, created_at').eq('tenant_id', tenantId),
-      supabase.from('products').select('id, sku, title, brand_name, cost, msrp, status').eq('tenant_id', tenantId),
+      supabase.from('products').select('id, sku, title, brand_id, brands(name), cost, msrp, status').eq('tenant_id', tenantId),
     ]);
 
     setOrderItems((itemsData as OrderItemRow[]) || []);
     setOrders((ordersData as OrderLite[]) || []);
-    setProducts((productsData as ProductLite[]) || []);
+    setProducts(
+      (
+        (productsData as unknown as {
+          id: string;
+          sku: string;
+          title: string;
+          brands: { name: string } | null;
+          cost: number | null;
+          msrp: number | null;
+          status: string;
+        }[]) || []
+      ).map((p) => ({
+        id: p.id,
+        sku: p.sku,
+        title: p.title,
+        brand_name: p.brands?.name ?? null,
+        cost: p.cost,
+        msrp: p.msrp,
+        status: p.status,
+      }))
+    );
     setLoading(false);
   };
 

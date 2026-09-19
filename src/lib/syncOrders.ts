@@ -77,7 +77,7 @@ export async function syncWayfairOrdersForTenant(client: SupabaseClient<any>, te
       .from('products')
       .select('id, sku')
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null);
+      .is('deactivated_at', null);
 
     const productBySku = new Map((products || []).map((p) => [p.sku.toUpperCase(), p.id]));
 
@@ -202,7 +202,7 @@ export async function syncWalmartOrdersForTenant(client: SupabaseClient<any>, te
       .from('products')
       .select('id, sku')
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null);
+      .is('deactivated_at', null);
 
     const productBySku = new Map((products || []).map((p) => [p.sku.toUpperCase(), p.id]));
 

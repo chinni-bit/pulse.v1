@@ -1270,6 +1270,125 @@ dedicated regression testing across the whole app; confirmed via fresh
 introduced anything new, these are the same findings flagged in every
 prior `npm audit` check this project has run).
 
+## Products table schema redesign (2026-09-19)
+
+Owner requested 9 changes to the `products` table in one message. All
+implemented in a single migration
+(`supabase/migrations/20260919120000_products_lookup_tables_and_constraints.sql`),
+applied, verified, then wired through every consuming file. `npx tsc
+--noEmit` clean before and after; live-verified in the browser (login,
+list view, Add Product with a newly-created brand/product-type/UPC/
+country, Edit prefill, then cleaned up the test row) plus direct SQL
+checks that the two new `CHECK` constraints actually reject bad values
+(`reorder_threshold <= 0`, a negative dimension).
+
+**What changed:**
+1. **`brand_name` (free text) → `brand_id` FK → new `brands` table**
+   (tenant-scoped, same shape as the existing `finish_groups` pattern:
+   `id/tenant_id/name/created_at`, `UNIQUE(tenant_id, name)`). Backfilled
+   from the 7 distinct `brand_name` values already in use (including a
+   leftover `Test Brand`) before dropping the old column - zero orphans,
+   confirmed via `brand_id IS NULL` count = 0 after backfill.
+2. **`status` default `ACTIVE` → `FUTURE`** (existing rows untouched;
+   only affects inserts that omit `status`). The Products page's own
+   Add-form default was also changed to `Future` to match, not just the
+   DB default - a product mid-setup shouldn't default to visible/active.
+3. **`reorder_threshold` must be `> 0`** - new `CHECK` constraint, plus
+   matching client-side validation in the form (was already
+   `NOT NULL DEFAULT 10`, so no data was at risk).
+4. **`product_type` (free text) → `product_type_id` FK → new
+   `product_types` table** (tenant-scoped, same shape as `brands`). No
+   backfill needed - every product had this unset already. The form UI
+   changed from a plain text input to a select-with-inline-add, matching
+   the Brand/Finish Group pattern already in this file.
+5. **`country_of_origin` (free text, capped at a 9-item hardcoded list
+   plus "Other") → `country_of_origin_id` FK → new `countries` table.**
+   Deliberately made this table **global, not tenant-scoped** - a
+   country is a real-world fact, not a per-tenant taxonomy choice, unlike
+   brands/product types. Seeded with a full 195-country reference list
+   (ISO 3166-1-based name + 2-letter code). Dropped the old "Other"
+   free-text fallback entirely in favor of the real list - flagging this
+   since it's a behavior change beyond a literal rename, not just asked
+   for verbatim.
+6. **8 dimension/weight columns** (`product_length/width/height/weight`,
+   `carton_length/width/height/weight`) **now require `> 0` when set,
+   NULL still allowed** ("not yet defined"). All were already nullable
+   with zero existing violations (checked before migrating). Client-side
+   form validation added to match, and the number inputs' `min` moved
+   from `0` to effectively reject `0` before it reaches the DB.
+7. **`deleted_at` renamed to `deactivated_at`.** This column was already
+   unused - products are never soft-deleted, only deactivated via the
+   `status` field (see the existing code comment in `products.tsx`
+   explaining why: historical `order_items` would break). The rename
+   preserves that same intentionally-unused state; `deactivated_at` and
+   the new `deactivated_by` (below) are NOT wired into the
+   Deactivate/Activate button - only `status` flips, exactly as before.
+8. **`created_by` / `updated_by` / `deactivated_by`** - new nullable FK
+   columns to `users(id)`. Owner's message said "deleted by"; renamed to
+   `deactivated_by` for consistency with the `deactivated_at` rename
+   above (same underlying concept, both left unset since deactivation
+   doesn't touch either field - see #7). `created_by`/`updated_by` ARE
+   wired into the product form's insert/update calls, matching the
+   `user?.id || null` pattern already used in `inventory-adjustments.tsx`,
+   `inventory-counts.tsx`, `inventory-landed-cost.tsx`, and
+   `inventory-management.tsx`.
+9. **`upc1` / `upc2`** - new nullable text columns, each
+   `UNIQUE(tenant_id, upc1)` / `UNIQUE(tenant_id, upc2)` - tenant-scoped
+   uniqueness, mirroring the existing `UNIQUE(tenant_id, sku)` pattern
+   rather than a global-uniqueness read of "must be unique." Postgres
+   allows unlimited NULLs in a unique column, so "not yet defined" needed
+   no special-casing. Added to the product form (both fields) and to
+   Duplicate (explicitly cleared on the copy, since a duplicated UPC
+   would violate uniqueness the moment it's saved).
+
+**Consuming-code changes**, 15 files total beyond the migration:
+- `products.tsx` - the real rework: new `brands`/`product_types`
+  fetch+create functions (mirroring the existing `finish_groups`
+  pattern exactly), Country of Origin converted from a hardcoded
+  9-country dropdown to the DB-backed 195-country list, UPC1/UPC2 added
+  to the form and detail view, sort/search/table columns updated for
+  the new nested `brands(name)`/`product_types(name)` shape (PostgREST
+  embedded joins, same pattern this file already used for
+  `finish_groups(name)`).
+- 12 other files needed only the mechanical `deleted_at` →
+  `deactivated_at` rename in their `.is(...)` filters:
+  `src/lib/syncOrders.ts`, `dashboard.tsx`, `m/dashboard.tsx`,
+  `inventory.tsx`, `m/inventory.tsx`, `inventory-adjustments.tsx`,
+  `inventory-counts.tsx`, `inventory-management.tsx`,
+  `api/channels/push-wayfair-inventory.ts`,
+  `api/channels/push-walmart-inventory.ts`.
+- 4 read-only files displaying/grouping by brand
+  (`inventory.tsx`, `m/inventory.tsx`, `analytics-sales.tsx`,
+  `analytics-products.tsx`) and one displaying country
+  (`inventory-landed-cost.tsx`, for its tariff-by-country lookup) were
+  changed at the query level only - `select('...brand_name...')` became
+  `select('...brand_id, brands(name)...')`, then flattened back into a
+  client-side `brand_name` (or `country_of_origin`) field immediately
+  after fetch, so every line of logic downstream of that point needed
+  zero changes.
+
+**Judgment calls made without stopping to ask** (flagged here per this
+project's established pattern):
+- Tenant-scoped UPC uniqueness over global (matches SKU's existing
+  pattern; this app has one real tenant today so the distinction is
+  largely theoretical, but tenant-scoped is the more defensible default
+  if a second tenant is ever onboarded).
+- `countries` as a global table, not tenant-scoped like `brands`/
+  `product_types` - a country isn't a per-tenant taxonomy decision.
+- `deactivated_by` instead of the literal "deleted by" wording, for
+  consistency with `deactivated_at`.
+- Dropped the old "Other" free-text country fallback for a real
+  country list (behavior change, not just a rename).
+- Form's own status default changed to `FUTURE` alongside the DB
+  default, so a brand-new product doesn't default to `ACTIVE`-looking
+  in the UI while the DB says otherwise.
+
+**Not yet done:** `NESTORA_PULSE_SCHEMA_BACKUP` on Google Drive still
+needs re-syncing to include this migration plus the previous
+`20260917075824_security_hardening_...` one it was already missing -
+tracked, not forgotten, doing it in this same round per the three-way
+backup rule.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at

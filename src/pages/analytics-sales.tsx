@@ -81,13 +81,20 @@ export default function AnalyticsSales() {
         .select('id, order_number, channel, customer_id, customer_group_id, status, total_amount, created_at')
         .eq('tenant_id', tenantId),
       supabase.from('order_items').select('id, order_id, product_id, quantity_ordered, unit_price, is_cancelled').eq('tenant_id', tenantId),
-      supabase.from('products').select('id, sku, title, brand_name').eq('tenant_id', tenantId),
+      supabase.from('products').select('id, sku, title, brand_id, brands(name)').eq('tenant_id', tenantId),
       supabase.from('customer_groups').select('id, name').eq('tenant_id', tenantId),
     ]);
 
     setOrders((ordersData as Order[]) || []);
     setItems((itemsData as OrderItem[]) || []);
-    setProducts((productsData as Product[]) || []);
+    setProducts(
+      ((productsData as unknown as { id: string; sku: string; title: string; brands: { name: string } | null }[]) || []).map((p) => ({
+        id: p.id,
+        sku: p.sku,
+        title: p.title,
+        brand_name: p.brands?.name ?? null,
+      }))
+    );
     setCustomerGroups((groupsData as CustomerGroup[]) || []);
     setLoading(false);
   };

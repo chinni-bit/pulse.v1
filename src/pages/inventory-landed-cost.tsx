@@ -83,7 +83,7 @@ export default function InventoryLandedCost() {
       supabase
         .from('inventory_batches')
         .select(
-          'id, product_id, batch_number, quantity_available, cost_per_unit, status, products(sku, title, country_of_origin, carton_length, carton_width, carton_height)'
+          'id, product_id, batch_number, quantity_available, cost_per_unit, status, products(sku, title, country_of_origin_id, countries(name), carton_length, carton_width, carton_height)'
         )
         .eq('tenant_id', tenantId)
         .eq('landed_cost_status', 'PENDING')
@@ -102,7 +102,7 @@ export default function InventoryLandedCost() {
         quantity_available: number;
         cost_per_unit: number | null;
         status: string;
-        products: { sku: string; title: string; country_of_origin: string | null; carton_length: number | null; carton_width: number | null; carton_height: number | null } | null;
+        products: { sku: string; title: string; countries: { name: string } | null; carton_length: number | null; carton_width: number | null; carton_height: number | null } | null;
       }[]) || []
     ).map((b) => ({
       id: b.id,
@@ -113,7 +113,7 @@ export default function InventoryLandedCost() {
       status: b.status,
       sku: b.products?.sku || '—',
       title: b.products?.title || '—',
-      country_of_origin: b.products?.country_of_origin || null,
+      country_of_origin: b.products?.countries?.name || null,
       carton_length: b.products?.carton_length || null,
       carton_width: b.products?.carton_width || null,
       carton_height: b.products?.carton_height || null,

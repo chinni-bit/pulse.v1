@@ -48,12 +48,16 @@ export default function MobileInventory() {
     const fetchAll = async () => {
       setLoading(true);
       const [{ data: prodData }, { data: batchData }, { data: locData }, { data: whData }] = await Promise.all([
-        supabase.from('products').select('id, sku, title, brand_name, status').eq('tenant_id', tenantId).is('deleted_at', null).eq('status', 'ACTIVE').order('sku'),
+        supabase.from('products').select('id, sku, title, brand_id, brands(name), status').eq('tenant_id', tenantId).is('deactivated_at', null).eq('status', 'ACTIVE').order('sku'),
         supabase.from('inventory_batches').select('id, product_id').eq('tenant_id', tenantId),
         supabase.from('batch_locations').select('batch_id, warehouse_id, quantity').eq('tenant_id', tenantId),
         supabase.from('warehouses').select('id, code').eq('tenant_id', tenantId).eq('is_active', true),
       ]);
-      setProducts((prodData as ProductRow[]) || []);
+      setProducts(
+        ((prodData as unknown as { id: string; sku: string; title: string; status: string; brands: { name: string } | null }[]) || []).map(
+          (p) => ({ id: p.id, sku: p.sku, title: p.title, status: p.status, brand_name: p.brands?.name ?? null })
+        )
+      );
       setBatches((batchData as Batch[]) || []);
       setLocations((locData as Location[]) || []);
       setWarehouses((whData as WarehouseLite[]) || []);

@@ -116,7 +116,7 @@ export default function InventoryAdjustments() {
       { data: qcData },
       { data: countsData },
     ] = await Promise.all([
-      supabase.from('products').select('id, sku, title, cost').eq('tenant_id', tenantId).is('deleted_at', null).order('sku'),
+      supabase.from('products').select('id, sku, title, cost').eq('tenant_id', tenantId).is('deactivated_at', null).order('sku'),
       supabase.from('warehouses').select('id, code, name').eq('tenant_id', tenantId).eq('is_active', true).order('code'),
       supabase
         .from('inventory_batches')

@@ -116,7 +116,7 @@ export default function InventoryCounts() {
     setError('');
 
     const [{ data: productsData }, { data: warehousesData }, { data: locationsData }, { data: countsData }] = await Promise.all([
-      supabase.from('products').select('id, sku, title').eq('tenant_id', tenantId).eq('status', 'ACTIVE').is('deleted_at', null).order('sku'),
+      supabase.from('products').select('id, sku, title').eq('tenant_id', tenantId).eq('status', 'ACTIVE').is('deactivated_at', null).order('sku'),
       supabase.from('warehouses').select('id, code, name').eq('tenant_id', tenantId).eq('is_active', true).order('code'),
       supabase
         .from('batch_locations')

@@ -91,11 +91,11 @@ export default function Inventory() {
     setWarehouses(warehouseData || []);
     setSelectedWarehouseIds((prev) => (prev.size === 0 ? new Set((warehouseData || []).map((w) => w.id)) : prev));
 
-    const { data: productsData, error: productsError } = await supabase
+    const { data: productsDataRaw, error: productsError } = await supabase
       .from('products')
-      .select('id, sku, title, brand_name, status, reorder_threshold')
+      .select('id, sku, title, brand_id, brands(name), status, reorder_threshold')
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
+      .is('deactivated_at', null)
       .order('sku', { ascending: true });
 
     if (productsError) {
@@ -104,7 +104,16 @@ export default function Inventory() {
       return;
     }
 
-    const productIds = (productsData || []).map((p) => p.id);
+    const productsData: ProductRow[] = (productsDataRaw || []).map((p: any) => ({
+      id: p.id,
+      sku: p.sku,
+      title: p.title,
+      status: p.status,
+      reorder_threshold: p.reorder_threshold,
+      brand_name: p.brands?.name ?? null,
+    }));
+
+    const productIds = productsData.map((p) => p.id);
 
     const { data: batchesData, error: batchesError } = await supabase
       .from('inventory_batches')

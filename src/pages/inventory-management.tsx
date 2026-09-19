@@ -81,7 +81,7 @@ export default function InventoryManagement() {
 
     const [{ data: productsData }, { data: warehousesData }, { data: batchesData }, { data: locationsData }, { data: transfersData }] =
       await Promise.all([
-        supabase.from('products').select('id, sku, title, cost').eq('tenant_id', tenantId).is('deleted_at', null).order('sku'),
+        supabase.from('products').select('id, sku, title, cost').eq('tenant_id', tenantId).is('deactivated_at', null).order('sku'),
         supabase.from('warehouses').select('id, code, name').eq('tenant_id', tenantId).eq('is_active', true).order('code'),
         supabase
           .from('inventory_batches')

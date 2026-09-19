@@ -77,7 +77,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .from('products')
       .select('id, sku')
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null);
+      .is('deactivated_at', null);
 
     if (productsError) {
       throw new Error(`Failed to read products: ${productsError.message}`);
