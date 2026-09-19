@@ -1389,6 +1389,59 @@ needs re-syncing to include this migration plus the previous
 tracked, not forgotten, doing it in this same round per the three-way
 backup rule.
 
+## Navigation redesign: Settings menu, Tenant Info, Product Types, favicon (2026-09-19)
+
+Owner requested a browser-tab icon and a top-nav reorganization in the same
+message. `npx tsc --noEmit` clean; live-verified in the browser (Settings
+dropdown open/close/navigate, Tenant Info view and edit-and-save, Product
+Types add and the delete-safety-check actually blocking a type still in use)
+before cleaning up test data.
+
+- **Favicon** - `public/favicon.ico`, a bold red "N" on white, generated via
+  .NET `System.Drawing` (no design tool, same technique as the mobile PWA's
+  icons). No code change needed to wire it up - Next.js Pages Router serves
+  `public/favicon.ico` automatically by convention.
+- **New "Settings" dropdown** in `AppHeader.tsx`, positioned left of the
+  Tenant name badge (owner asked for "Config"; renamed to "Settings"
+  mid-request). Click-to-open, closes on an outside click or route change,
+  highlights when the current page is one of its own links. Moved `Users`
+  and `Warehouses` out of the main nav row into it, and added two new links:
+  `Product Types` and `Tenant Info`.
+- **New `/admin/product-types` page** - the first dedicated management UI
+  for the `product_types` table (previously only reachable via the
+  create-inline flow on the Products form, added in the prior round's
+  schema redesign). List, add, rename, delete - delete is blocked with a
+  friendly message (not just a raw FK-constraint error) if any product still
+  uses that type, verified live by assigning a type to a real product,
+  confirming the block, then unassigning and deleting cleanly.
+- **New `/admin/tenant-info` page** plus a schema addition
+  (`supabase/migrations/20260919130000_tenant_contact_address_timezone.sql`):
+  `tenants` gained `contact_name`, `contact_phone`, `contact_email`,
+  `address`, and `timezone` (curated ~17-zone dropdown, not a full IANA
+  list - this is one real US-based company, not a global SaaS needing every
+  zone). Shows Tenant ID (read-only), Name, Status, and the new fields;
+  everyone in the tenant can view, only `super_admin` can edit - matches
+  this app's existing pattern of client-side role gating for non-privilege-
+  escalation admin screens (Products, Warehouses, and the Adjustments/
+  Inventory-Mgmt `admin`-or-`super_admin` checks are all gated the same way,
+  client-side only; only user creation/role changes go through a real
+  server-side check, because those are the actual privilege-escalation
+  risk).
+- **Promoted `admin@nestora.local` to `super_admin`**
+  (`supabase/migrations/20260919130100_promote_seed_admin_to_super_admin.sql`),
+  confirmed with the owner first - the `super_admin` role already existed in
+  the schema's CHECK constraint and in `admin/users.tsx`'s UI, just unused
+  until now. Without this, nobody could have used the edit half of the
+  Tenant Info page being built in this same round.
+
+**Judgment calls flagged, not asked about mid-task:** "contact info" read as
+a single contact person's name (`contact_name`) rather than a second
+address/phone block; `timezone` defaults to `America/New_York` (matches the
+existing seed data, both tenants already had US Eastern set as an implicit
+default before this field existed); Tenant Info scoped to the current user's
+own tenant only, no cross-tenant switcher, since a `super_admin` managing
+another tenant's info isn't part of what was asked.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
