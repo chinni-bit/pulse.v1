@@ -515,6 +515,105 @@ got full UI testing; Warehouses got partial (list + add via UI, delete
 verified via SQL); Variants and the admin Users page were verified via
 SQL/direct HTTP, not click-through.
 
+## Roadmap complete; navigation reorganized into a Settings menu (2026-09-19)
+
+All 6 items on the owner's 2026-09-15/16 roadmap (Customers → Inventory
+page → Warehouse/inventory management → Analytics → Mobile app →
+Hardening) shipped as of the 2026-09-17 hardening pass. Several
+follow-on schema/UX refinement rounds happened after that, summarized
+here by decision rather than chronologically (see `docs/CHANGELOG.md`
+for the round-by-round detail, exact commits, and live-verification
+notes).
+
+**Why the nav changed:** the top nav bar had grown to 17+ links as each
+roadmap item shipped, with admin-only pages (Users, Warehouses'
+management, taxonomy pages) mixed in alongside daily-use pages
+(Products, Orders, Analytics). Owner asked for a "Config" menu to hold
+the admin/setup pages separately — renamed to "Settings" mid-request
+(owner's correction). Implemented as a dropdown in `AppHeader.tsx`,
+positioned left of the Tenant name badge, containing: Users, Warehouses,
+Product Types, Customer Groups, Integrations, Tenant Info. Everything
+else (Dashboard, Products, Inventory, the 5 Analytics pages, Orders,
+Customers) stayed in the main nav row as before.
+
+**Two new pages came out of this, not just a menu move:**
+- **Tenant Info** (`/admin/tenant-info`) — didn't exist before. Owner
+  specified the exact fields (Tenant ID, Name, contact info, address,
+  phone, email, timezone, Status) and the permission model (everyone in
+  the tenant can view, only `super_admin` can edit). This required
+  promoting the one real seeded account (`admin@nestora.local`) to
+  `super_admin` — confirmed with the owner first, since role promotion
+  is a real privilege change, not a cosmetic one. Edit access is gated
+  client-side only, matching how every other "admin-only" screen in this
+  app already works (Products, Warehouses, the Adjustments/Inventory-Mgmt
+  role checks) — the only place this app does real server-side privilege
+  checking is user creation/role changes specifically, because those are
+  the actual escalation risk.
+- **Favicon** — a bold red "N," generated locally via .NET
+  `System.Drawing` (same technique as the mobile PWA's icons), no design
+  tool needed.
+
+## Channels folded into Customers (2026-09-19)
+
+**The core confusion this resolved:** the owner's mental model was that
+*everyone* Nestora sells to — Amazon, Wayfair, Walmart, Home Depot,
+Cymax, a local mom-and-pop store, even a military channel like AAFES —
+is a "customer," grouped by customer type. The codebase's existing
+`channels` table (Amazon/Wayfair/Walmart API sync config: credentials,
+sync interval, last-sync timestamp) was a completely different,
+narrower concept — pure integration plumbing — that had been informally
+standing in for "who do we sell to" without actually being that.
+
+**Design discussion, compressed:** first proposed keeping `channels` and
+`customers` as two separate tables with a pointer between them; owner
+pushed back that this was unnecessary complexity for a project still in
+its early phase, and preferred one universal `customers` ledger with
+simple per-customer capability flags for "does this need automated
+inventory sync, does it need orders imported automatically," etc.
+Landed on:
+
+- **`customers` is the one universal ledger** of everyone Nestora sells
+  to, categorized by `customer_groups`. Seeded with the 9 categories the
+  owner specified: ECom Channels, ECom Resellers, Big Box Stores,
+  Independent Stores, Market Places, Value/Discount Customers, Specialty
+  Stores, Social Media, Others.
+- **`channels` renamed to `customer_integrations`** rather than merged
+  away — it's genuinely different in kind (technical sync credentials
+  and schedule, not a business relationship) and already had real,
+  working integration code built around it (Wayfair/Walmart order pull
+  and inventory push). `customers.integration_id` is a new, optional
+  pointer from a customer row to its integration record — set only for
+  the handful of customers with actual API sync. Renaming in place
+  (rather than leaving `channels` as dead terminology) was deliberately
+  chosen over leaving the two concepts do-it-yourself-disambiguated by
+  convention, specifically because the owner raised "will this be
+  confusing on a future code review" as the reason to do it properly —
+  agreed, and the full rename (table, API routes under
+  `api/customer-integrations/*`, the Vercel Cron path, the UI page)  was
+  done in one pass rather than partially.
+- **Confirmed safe to rename the API routes and the cron path** by
+  checking first whether any external pinger service depended on the
+  old URLs (per the Vercel Hobby-plan daily-cron limitation noted
+  earlier in this doc) — owner confirmed none exists yet, so the full
+  rename went ahead with `vercel.json` updated in the same change.
+- **`product_mappings.channel`** (the per-channel SKU/listing-name
+  override used by real order sync) was explicitly *not* touched,
+  despite an earlier request to change it to `customer_id` — that
+  request turned out to be based on the same channel/customer
+  conflation this whole decision resolves. `channel` there correctly
+  means "which marketplace," which is a different question from "which
+  customer," and swapping it would have broken live sync code for a
+  request that no longer made sense once the terminology was untangled.
+- **Customer capability fields**, built as a deliberately separate,
+  later round once the ledger/grouping design above was settled: 5
+  method+details pairs on `customers` (inventory feed, order import,
+  shipping/tracking, invoicing, cancellations), each recording *how*
+  that workflow happens for that specific customer
+  (API/Email/FTP/Portal/EDI/Manual/None + free-text specifics) rather
+  than just whether it happens. A 6th one discussed in the same round —
+  content/picture updates — was deliberately deferred ("down the line,"
+  owner's own words), not forgotten.
+
 ## Sequencing
 
 Session persistence fix — done. Docs reorganized (obsolete plan moved out
@@ -526,3 +625,6 @@ starting point is pulling Wayfair dropship purchase orders. Everything in
 the postponed hardening list waits for an explicit last-phase discussion.
 MS 365/Teams and a real admin panel wait for an explicit future-phase
 scoping discussion — not started, not assumed.
+
+**Update 2026-09-19: all of the above is done.** See the two sections
+above this one for what shipped after the roadmap completed.
