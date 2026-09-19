@@ -13,6 +13,8 @@ const MAX_TITLE_LENGTH = 200;
 const MAX_BRAND_LENGTH = 100;
 const MAX_PRODUCT_TYPE_LENGTH = 60;
 const MAX_UPC_LENGTH = 20;
+const MAX_DESCRIPTION_LENGTH = 2000;
+const MAX_DIMENSION_NOTES_LENGTH = 250;
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 const NEW_BRAND_VALUE = '__new__';
 const NEW_FINISH_GROUP_VALUE = '__new__';
@@ -287,9 +289,13 @@ export default function Products() {
     setProductTypes(data || []);
   };
 
-  // countries is a global reference list, not tenant-scoped - no tenantId filter.
   const fetchCountries = async () => {
-    const { data } = await supabase.from('countries').select('id, name').order('name', { ascending: true });
+    if (!tenantId) return;
+    const { data } = await supabase
+      .from('countries')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+      .order('name', { ascending: true });
     setCountries(data || []);
   };
 
@@ -672,7 +678,7 @@ export default function Products() {
     if (!tenantId || !name.trim()) return null;
     const { data, error } = await supabase
       .from('finish_groups')
-      .insert({ tenant_id: tenantId, name: name.trim() })
+      .insert({ tenant_id: tenantId, name: name.trim(), created_by: user?.id || null })
       .select('id, name')
       .single();
 
@@ -739,6 +745,7 @@ export default function Products() {
         tenant_id: tenantId,
         product_id: productId,
         customer_group_id: groupId,
+        created_by: user?.id || null,
       });
     } else {
       const existing = exclusivityByProduct[productId]?.find((r) => r.customer_group_id === groupId);
@@ -758,6 +765,7 @@ export default function Products() {
         tenant_id: tenantId,
         product_id: productId,
         customer_id: customerId,
+        created_by: user?.id || null,
       });
     } else {
       const existing = exclusivityByProduct[productId]?.find((r) => r.customer_id === customerId);
@@ -855,6 +863,7 @@ export default function Products() {
       channel,
       channel_sku: draftSku,
       listing_name: draftName || null,
+      created_by: user?.id || null,
     });
 
     setListingSaving(null);
@@ -886,6 +895,7 @@ export default function Products() {
       variant_type: variantForm.variant_type.trim() || null,
       related_product_id: variantForm.related_product_id,
       quantity_in_bundle: variantForm.quantity_in_bundle ? Number(variantForm.quantity_in_bundle) : null,
+      created_by: user?.id || null,
     });
 
     setVariantSaving(false);
@@ -1322,6 +1332,7 @@ export default function Products() {
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     disabled={saving}
                     rows={2}
+                    maxLength={MAX_DESCRIPTION_LENGTH}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50"
                   />
                 </div>
@@ -1462,6 +1473,7 @@ export default function Products() {
                       onChange={(e) => setFormData({ ...formData, dimension_notes: e.target.value })}
                       disabled={saving}
                       rows={2}
+                      maxLength={MAX_DIMENSION_NOTES_LENGTH}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50"
                     />
                   </div>

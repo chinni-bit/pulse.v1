@@ -1442,6 +1442,60 @@ default before this field existed); Tenant Info scoped to the current user's
 own tenant only, no cross-tenant switcher, since a `super_admin` managing
 another tenant's info isn't part of what was asked.
 
+## Field-length limits, tenant-scoped countries, created_by audit trail (2026-09-19)
+
+Owner requested 4 more schema changes in one message, applied in
+`supabase/migrations/20260919140000_product_field_lengths_tenant_countries_created_by.sql`.
+`npx tsc --noEmit` clean; both new constraint types verified live via direct
+SQL (a 2001-character description rejected, a duplicate country per tenant
+rejected); the Products Add form re-checked in the browser to confirm the
+tenant-scoped country dropdown still renders its full list.
+
+- **Length caps added to `products`**: `status`/`dimension_unit`/
+  `weight_unit` ≤ 20 chars, `dimension_notes` ≤ 250, `description` ≤ 2000.
+  All as `CHECK` constraints (nullable columns skip the check when NULL,
+  matching every other length constraint already on this table).
+  `description` and `dimension_notes` also got matching `maxLength` on
+  their `<textarea>`s in `products.tsx` (`status`/`dimension_unit`/
+  `weight_unit` are `<select>`s with fixed short option values, so no UI
+  change was needed there).
+- **`countries` is now tenant-scoped**, reversing this table's own design
+  from the prior round (it was deliberately made global then - a country
+  is a real-world fact, not a per-tenant taxonomy choice - but the owner
+  wants each tenant to own its own list). Duplicated the existing 197-row
+  list for every existing tenant (zero orphan risk - no product referenced
+  any country yet), dropped the old globally-unique `iso2`/`name`
+  constraints in favor of `UNIQUE(tenant_id, iso2)` /
+  `UNIQUE(tenant_id, name)`. `products.tsx`'s `fetchCountries()` now filters
+  on `tenant_id`. **Flagging a gap this creates, not fixed this round**:
+  there's no "add new country" UI (countries were always populated by
+  migration seed, not user input) and no tenant-creation flow that
+  auto-copies the reference list - a brand-new tenant created in the future
+  would start with zero countries. Not urgent (tenant creation is
+  SQL-only today, no self-service), but worth knowing.
+- **`created_by` added to 5 tables**: `countries`, `finish_groups`,
+  `product_variants`, `product_mappings`, `product_customer_exclusivity` -
+  exactly the 5 named, nullable `uuid REFERENCES users(id)`. Wired into
+  every insert path in `products.tsx` that creates one of these rows
+  (`createFinishGroup`, `handleVariantSubmit`, `addListing`,
+  `toggleGroupExclusivity`, `toggleCustomerExclusivity`) using the same
+  `user?.id || null` pattern already used everywhere else in this app.
+  **Flagging, not silently expanding scope**: `brands` and `product_types`
+  were NOT in the owner's list (only the 5 above were named) even though
+  they're structurally identical siblings of `finish_groups` - left them
+  alone rather than assuming the omission was accidental.
+- **Explicitly NOT done, needs owner clarification**: the request also said
+  "product mapping should use customer_id rather than channel." Checked
+  `product_mappings.channel` against every consumer
+  (`syncOrders.ts` pulls per-channel SKU overrides for Wayfair/Walmart order
+  import, `push-wayfair-inventory.ts`/`push-walmart-inventory.ts` push
+  inventory per channel, `products.tsx`'s "Channel Listings" section is
+  built entirely around it) - it identifies which sales channel
+  (Amazon/Wayfair/Walmart) a listing belongs to, unrelated to customers.
+  Swapping it for `customer_id` would break live multi-channel sync, so
+  this was NOT applied; asked the owner to clarify intent instead of
+  guessing at a destructive change to working code.
+
 ## A note on this file's own history
 
 `docs/CHANGELOG.md` in this code repo and the mirror copy at
